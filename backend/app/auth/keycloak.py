@@ -150,10 +150,35 @@ async def _decode_token(token: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+_ANONYMOUS_USER = AuthenticatedUser(
+    sub="anonymous",
+    username="anonymous",
+    email="anonymous@local",
+    full_name="Anonymous (auth disabled)",
+    roles=["tf-admin", "tf-operator", "tf-viewer"],
+)
+
+
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Depends(
+        HTTPBearer(auto_error=False)
+    ),
 ) -> AuthenticatedUser:
-    """FastAPI dependency — validates JWT and returns the authenticated user."""
+    """FastAPI dependency — validates JWT and returns the authenticated user.
+
+    When ``AUTH_DISABLED=true`` is set, returns an anonymous admin user
+    without requiring a token (for local testing only).
+    """
+    if settings.auth_disabled:
+        logger.warning("AUTH_DISABLED is set — returning anonymous admin user")
+        return _ANONYMOUS_USER
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization token",
+        )
+
     payload = await _decode_token(credentials.credentials)
 
     return AuthenticatedUser(
@@ -171,6 +196,9 @@ async def validate_ws_token(token: str) -> AuthenticatedUser:
     Browsers cannot send Authorization headers on WebSocket connections,
     so the frontend passes the token via ``?token=<jwt>``.
     """
+    if settings.auth_disabled:
+        return _ANONYMOUS_USER
+
     payload = await _decode_token(token)
 
     return AuthenticatedUser(

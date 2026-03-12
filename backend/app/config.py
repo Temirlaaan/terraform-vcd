@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # SSL verification for outgoing HTTPS requests (VCD, Keycloak, etc.)
     verify_ssl: bool = True
 
+    # Authentication — set to true to disable Keycloak auth (for testing only!)
+    auth_disabled: bool = False
+
     # Keycloak
     keycloak_url: str = ""
     keycloak_realm: str = ""

@@ -52,6 +52,7 @@ services:
       - NSXT_URL=${NSXT_URL}
       - NSXT_USER=${NSXT_USER}
       - NSXT_PASSWORD=${NSXT_PASSWORD}
+      - AUTH_DISABLED=${AUTH_DISABLED:-false}
       - KEYCLOAK_URL=${KEYCLOAK_URL}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM}
       - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID}
@@ -84,6 +85,7 @@ services:
       - /app/node_modules
     environment:
       - VITE_API_URL=http://localhost:8000
+      - VITE_AUTH_DISABLED=${AUTH_DISABLED:-false}
     depends_on:
       - backend
     command: npm run dev -- --host 0.0.0.0
