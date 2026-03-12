@@ -46,9 +46,11 @@ services:
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173}
       - VERIFY_SSL=${VERIFY_SSL:-true}
       - VCD_URL=${VCD_URL}
+      - VCD_API_TOKEN=${VCD_API_TOKEN}
+      - VCD_API_VERSION=${VCD_API_VERSION:-38.0}
+      - VCD_ORG=${VCD_ORG:-System}
       - VCD_USER=${VCD_USER}
       - VCD_PASSWORD=${VCD_PASSWORD}
-      - VCD_ORG=${VCD_ORG:-System}
       - NSXT_URL=${NSXT_URL}
       - NSXT_USER=${NSXT_USER}
       - NSXT_PASSWORD=${NSXT_PASSWORD}
