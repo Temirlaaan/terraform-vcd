@@ -39,6 +39,7 @@ async def terraform_ws(
     try:
         user = await validate_ws_token(token)
     except Exception:
+        logger.warning("WS auth failed for operation=%s", operation_id)
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -69,7 +70,9 @@ async def terraform_ws(
                 await asyncio.sleep(0.05)
 
     except WebSocketDisconnect:
-        pass
+        logger.info("WS disconnected: user=%s operation=%s", user.username, operation_id)
+    except Exception:
+        logger.exception("WS error: user=%s operation=%s", user.username, operation_id)
     finally:
         await pubsub.unsubscribe(channel)
         await pubsub.aclose()

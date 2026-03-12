@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, String, Text
+from sqlalchemy import DateTime, Enum, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +24,11 @@ class OperationStatus(str, enum.Enum):
 
 class Operation(Base):
     __tablename__ = "operations"
+    __table_args__ = (
+        Index("ix_operations_target_org_started_at", "target_org", "started_at"),
+        Index("ix_operations_status", "status"),
+        Index("ix_operations_user_id", "user_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -38,7 +43,7 @@ class Operation(Base):
     )
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     username: Mapped[str] = mapped_column(String(255), nullable=False)
-    target_org: Mapped[str] = mapped_column(String(255), nullable=False)
+    target_org: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

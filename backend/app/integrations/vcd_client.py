@@ -10,10 +10,14 @@ VCD XML API conventions:
 - Accept ``application/*+json`` to get JSON responses instead of XML.
 """
 
+import logging
+
 import httpx
 
 from app.config import settings
 from app.core.cache import cached
+
+logger = logging.getLogger(__name__)
 
 _JSON_ACCEPT = "application/*+json;version=38.1"
 _CACHE_TTL = 300  # seconds
@@ -32,6 +36,7 @@ class VCDClient:
 
     async def _authenticate(self, client: httpx.AsyncClient) -> str:
         """POST /api/sessions — returns the session token."""
+        logger.info("Authenticating to VCD API at %s", self._base)
         resp = await client.post(
             f"{self._base}/sessions",
             auth=(
@@ -43,11 +48,12 @@ class VCDClient:
         resp.raise_for_status()
         token = resp.headers.get("x-vcloud-authorization", "")
         self._token = token
+        logger.info("VCD authentication successful")
         return token
 
     async def _client(self) -> httpx.AsyncClient:
         """Return a configured httpx client with a valid auth token."""
-        client = httpx.AsyncClient(verify=False, timeout=30.0)
+        client = httpx.AsyncClient(verify=settings.verify_ssl, timeout=30.0)
         if not self._token:
             await self._authenticate(client)
         client.headers.update(
@@ -62,13 +68,18 @@ class VCDClient:
         """GET helper with automatic re-auth on 401."""
         client = await self._client()
         try:
+            logger.debug("VCD GET %s params=%s", path, params)
             resp = await client.get(f"{self._base}{path}", params=params)
             if resp.status_code == 401:
+                logger.warning("VCD token expired, re-authenticating")
                 await self._authenticate(client)
                 client.headers["x-vcloud-authorization"] = self._token or ""
                 resp = await client.get(f"{self._base}{path}", params=params)
             resp.raise_for_status()
             return resp.json()
+        except httpx.HTTPStatusError as exc:
+            logger.error("VCD API error: %s %s -> %s", exc.request.method, exc.request.url, exc.response.status_code)
+            raise
         finally:
             await client.aclose()
 
