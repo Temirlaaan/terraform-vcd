@@ -209,9 +209,10 @@ class VCDClient:
 
     @cached(prefix="vcd:storprof", ttl=_CACHE_TTL)
     async def get_storage_profiles(self, pvdc: str | None = None) -> list[dict]:
+        """Return storage profiles.  *pvdc* should be the PVDC URN id."""
         params: dict = {}
         if pvdc:
-            params["filter"] = f"(providerVdc=={pvdc})"
+            params["filter"] = f"(pvdcId=={pvdc})"
         items = await self._get_paginated(
             "/cloudapi/1.0.0/pvdcStoragePolicies", params=params
         )

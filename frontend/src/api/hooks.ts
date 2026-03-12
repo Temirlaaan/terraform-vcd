@@ -17,18 +17,19 @@ interface MetadataResponse<T> {
 export interface OrgItem {
   name: string;
   display_name: string;
+  id: string;
   is_enabled: boolean;
 }
 
 export interface ProviderVdcItem {
   name: string;
+  id: string;
   is_enabled: boolean;
-  cpu_allocated_mhz: number | null;
-  memory_allocated_mb: number | null;
 }
 
 export interface VdcItem {
   name: string;
+  id: string;
   org_name: string;
   allocation_model: string | null;
   is_enabled: boolean;
@@ -36,14 +37,13 @@ export interface VdcItem {
 
 export interface StorageProfileItem {
   name: string;
-  limit_mb: number | null;
-  used_mb: number | null;
-  is_default: boolean;
+  id: string;
+  is_enabled: boolean;
 }
 
 export interface EdgeGatewayItem {
   name: string;
-  org_name: string;
+  id: string;
   vdc_name: string;
   gateway_type: string | null;
 }

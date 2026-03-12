@@ -131,8 +131,14 @@ function VdcSection() {
   const setVdc = useConfigStore((s) => s.setVdc);
 
   const { data: pvdcs, isLoading: pvdcsLoading } = useProviderVdcs();
+  // Resolve selected PVDC ID for storage-profiles query
+  const selectedPvdcId = useMemo(
+    () => (pvdcs ?? []).find((p) => p.name === vdc.provider_vdc_name)?.id,
+    [pvdcs, vdc.provider_vdc_name]
+  );
+
   const { data: storageProfiles, isLoading: spLoading } = useStorageProfiles(
-    vdc.provider_vdc_name || undefined
+    selectedPvdcId || undefined
   );
 
   const pvdcOptions = useMemo<SelectOption[]>(
