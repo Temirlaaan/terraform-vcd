@@ -1,0 +1,42 @@
+terraform {
+  required_providers {
+    vcd = {
+      source  = "vmware/vcd"
+      version = "~> 3.12"
+    }
+  }
+
+  backend "s3" {
+    bucket                      = "{{ backend.bucket | default('terraform-state') }}"
+    key                         = "{{ backend.key | default(org.name | slug ~ '/terraform.tfstate') }}"
+    region                      = "{{ backend.region | default('us-east-1') }}"
+    endpoint                    = "{{ backend.endpoint | default('http://minio:9000') }}"
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    skip_region_validation      = true
+    force_path_style            = true
+  }
+}
+
+provider "vcd" {
+  url                  = var.vcd_url
+  user                 = var.vcd_user
+  password             = var.vcd_password
+  org                  = "{{ provider.org | default('System') }}"
+  allow_unverified_ssl = {{ provider.allow_unverified_ssl | default('true') }}
+}
+
+variable "vcd_url" {
+  type      = string
+  sensitive = false
+}
+
+variable "vcd_user" {
+  type      = string
+  sensitive = true
+}
+
+variable "vcd_password" {
+  type      = string
+  sensitive = true
+}

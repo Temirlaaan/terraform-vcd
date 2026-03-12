@@ -1,0 +1,18 @@
+resource "vcd_org" "{{ org.name | slug }}" {
+  name             = "{{ org.name }}"
+  full_name        = "{{ org.full_name | default(org.name) }}"
+  is_enabled       = {{ org.is_enabled | default(true) | lower }}
+  delete_force     = {{ org.delete_force | default(false) | lower }}
+  delete_recursive = {{ org.delete_recursive | default(false) | lower }}
+{% if org.description %}
+  description      = "{{ org.description }}"
+{% endif %}
+{% if org.metadata is defined and org.metadata %}
+
+  metadata = {
+{% for key, value in org.metadata.items() %}
+    {{ key }} = "{{ value }}"
+{% endfor %}
+  }
+{% endif %}
+}

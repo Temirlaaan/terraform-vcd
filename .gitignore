@@ -1,0 +1,53 @@
+# IDE and OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+__pycache__/
+
+# Python Backend
+backend/.venv/
+backend/venv/
+backend/__pycache__/
+backend/*.pyc
+backend/*.pyo
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+backend/alembic.ini
+
+# Node.js Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.npm/
+frontend/npm-debug.log
+frontend/.eslintcache
+frontend/coverage/
+
+# Environment configurations (Secrets)
+.env
+*.env
+backend/.env
+frontend/.env
+*.key
+*.pem
+
+# Terraform and Workspaces
+/tmp/tf-workspaces/
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+*.tfvars
+crash.log
+
+# Docker
+docker-compose.override.yml
+.docker-volume
+
+# Claude Code / AI tools
+.claude*
+.gemini/

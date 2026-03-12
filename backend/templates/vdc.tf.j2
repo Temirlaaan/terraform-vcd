@@ -1,0 +1,38 @@
+resource "vcd_org_vdc" "{{ vdc.name | slug }}" {
+  name = "{{ vdc.name }}"
+  org  = {{ vdc.org_ref | default('"' ~ org.name ~ '"') }}
+
+  allocation_model  = "{{ vdc.allocation_model | default('AllocationVApp') }}"
+  network_pool_name = "{{ vdc.network_pool_name | default('') }}"
+  provider_vdc_name = "{{ vdc.provider_vdc_name }}"
+
+  compute_capacity {
+    cpu {
+      allocated = {{ vdc.cpu_allocated | default(0) }}
+      limit     = {{ vdc.cpu_limit | default(0) }}
+    }
+
+    memory {
+      allocated = {{ vdc.memory_allocated | default(0) }}
+      limit     = {{ vdc.memory_limit | default(0) }}
+    }
+  }
+
+{% for sp in vdc.storage_profiles | default([]) %}
+  storage_profile {
+    name    = "{{ sp.name }}"
+    limit   = {{ sp.limit | default(0) }}
+    default = {{ sp.default | default(false) | lower }}
+    enabled = {{ sp.enabled | default(true) | lower }}
+  }
+
+{% endfor %}
+  enabled                  = {{ vdc.enabled | default(true) | lower }}
+  enable_thin_provisioning = {{ vdc.enable_thin_provisioning | default(true) | lower }}
+  enable_fast_provisioning = {{ vdc.enable_fast_provisioning | default(false) | lower }}
+  delete_force             = {{ vdc.delete_force | default(false) | lower }}
+  delete_recursive         = {{ vdc.delete_recursive | default(false) | lower }}
+{% if vdc.description %}
+  description              = "{{ vdc.description }}"
+{% endif %}
+}
