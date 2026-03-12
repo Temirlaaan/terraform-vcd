@@ -32,7 +32,7 @@ async def _fetch_jwks() -> dict[str, Any]:
         f"{settings.keycloak_url}/realms/{settings.keycloak_realm}"
         "/protocol/openid-connect/certs"
     )
-    async with httpx.AsyncClient(verify=False) as client:
+    async with httpx.AsyncClient(verify=settings.verify_ssl) as client:
         resp = await client.get(url, timeout=10)
         resp.raise_for_status()
         return resp.json()

@@ -43,15 +43,19 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-tf_user}:${DB_PASSWORD:-password}@postgres:5432/${DB_NAME:-terraform_dashboard}
       - REDIS_URL=redis://redis:6379/0
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173}
+      - VERIFY_SSL=${VERIFY_SSL:-true}
       - VCD_URL=${VCD_URL}
       - VCD_USER=${VCD_USER}
       - VCD_PASSWORD=${VCD_PASSWORD}
+      - VCD_ORG=${VCD_ORG:-System}
       - NSXT_URL=${NSXT_URL}
       - NSXT_USER=${NSXT_USER}
       - NSXT_PASSWORD=${NSXT_PASSWORD}
       - KEYCLOAK_URL=${KEYCLOAK_URL}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM}
       - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID}
+      - WORKSPACE_CLEANUP_ENABLED=${WORKSPACE_CLEANUP_ENABLED:-true}
     volumes:
       - ./backend:/app
       - tf_workspaces:/tmp/tf-workspaces
@@ -60,6 +64,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:

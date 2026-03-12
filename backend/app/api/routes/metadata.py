@@ -1,7 +1,11 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth import AuthenticatedUser, require_roles
 from app.integrations.vcd_client import vcd_client
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/metadata", tags=["metadata"])
 
@@ -15,6 +19,7 @@ async def list_organizations(user: AuthenticatedUser = Depends(_any_role)):
     try:
         orgs = await vcd_client.get_organizations()
     except Exception as exc:
+        logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail=f"VCD API error: {exc}")
     return {"items": orgs, "count": len(orgs)}
 
@@ -25,6 +30,7 @@ async def list_provider_vdcs(user: AuthenticatedUser = Depends(_any_role)):
     try:
         pvdcs = await vcd_client.get_provider_vdcs()
     except Exception as exc:
+        logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail=f"VCD API error: {exc}")
     return {"items": pvdcs, "count": len(pvdcs)}
 
@@ -35,6 +41,7 @@ async def list_storage_profiles(pvdc: str | None = Query(None), user: Authentica
     try:
         profiles = await vcd_client.get_storage_profiles(pvdc=pvdc)
     except Exception as exc:
+        logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail=f"VCD API error: {exc}")
     return {"items": profiles, "count": len(profiles)}
 
@@ -45,6 +52,7 @@ async def list_vdcs(org: str | None = Query(None), user: AuthenticatedUser = Dep
     try:
         vdcs = await vcd_client.get_vdcs(org_name=org)
     except Exception as exc:
+        logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail=f"VCD API error: {exc}")
     return {"items": vdcs, "count": len(vdcs)}
 
@@ -59,6 +67,7 @@ async def list_edge_gateways(
     try:
         edges = await vcd_client.get_edge_gateways(org_name=org, vdc_name=vdc)
     except Exception as exc:
+        logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail=f"VCD API error: {exc}")
     return {"items": edges, "count": len(edges)}
 
@@ -69,5 +78,6 @@ async def list_external_networks(user: AuthenticatedUser = Depends(_any_role)):
     try:
         nets = await vcd_client.get_external_networks()
     except Exception as exc:
+        logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail=f"VCD API error: {exc}")
     return {"items": nets, "count": len(nets)}
