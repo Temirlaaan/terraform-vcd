@@ -23,11 +23,15 @@ class Settings(BaseSettings):
     keycloak_client_id: str = "terraform-dashboard"
     keycloak_client_secret: str = ""
 
-    # VCD
+    # VCD — CloudAPI (used by the dashboard for metadata)
     vcd_url: str = ""
+    vcd_api_token: str = ""
+    vcd_api_version: str = "38.0"
+    vcd_org: str = "System"
+
+    # VCD — Terraform provider credentials (used by tf_runner / base.tf.j2)
     vcd_user: str = ""
     vcd_password: str = ""
-    vcd_org: str = "System"
 
     # NSX-T
     nsxt_url: str = ""
