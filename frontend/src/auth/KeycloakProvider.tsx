@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 
 import keycloak from "./keycloak";
 
+const AUTH_DISABLED = import.meta.env.VITE_AUTH_DISABLED === "true";
+
 /* ------------------------------------------------------------------ */
 /*  Loading / error screens                                            */
 /* ------------------------------------------------------------------ */
@@ -28,6 +30,11 @@ interface Props {
 }
 
 export function KeycloakProvider({ children }: Props) {
+  // Skip Keycloak entirely when auth is disabled (testing mode)
+  if (AUTH_DISABLED) {
+    return <>{children}</>;
+  }
+
   return (
     <ReactKeycloakProvider
       authClient={keycloak}
