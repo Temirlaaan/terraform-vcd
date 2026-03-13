@@ -1,10 +1,10 @@
 resource "vcd_org_vdc" "{{ vdc.name | slug }}" {
-  name = "{{ vdc.name }}"
-  org  = {{ vdc.org_ref | default('"' ~ org.name ~ '"') }}
+  name = "{{ vdc.name | hcl_escape }}"
+  org  = {{ vdc.org_ref | default('"' ~ (org.name | hcl_escape) ~ '"') }}
 
-  allocation_model  = "{{ vdc.allocation_model | default('AllocationVApp') }}"
-  network_pool_name = "{{ vdc.network_pool_name | default('') }}"
-  provider_vdc_name = "{{ vdc.provider_vdc_name }}"
+  allocation_model  = "{{ vdc.allocation_model | default('AllocationVApp') | hcl_escape }}"
+  network_pool_name = "{{ vdc.network_pool_name | default('') | hcl_escape }}"
+  provider_vdc_name = "{{ vdc.provider_vdc_name | hcl_escape }}"
 
   compute_capacity {
     cpu {
@@ -20,7 +20,7 @@ resource "vcd_org_vdc" "{{ vdc.name | slug }}" {
 
 {% for sp in vdc.storage_profiles | default([]) %}
   storage_profile {
-    name    = "{{ sp.name }}"
+    name    = "{{ sp.name | hcl_escape }}"
     limit   = {{ sp.limit | default(0) }}
     default = {{ sp.default | default(false) | lower }}
     enabled = {{ sp.enabled | default(true) | lower }}
@@ -33,6 +33,6 @@ resource "vcd_org_vdc" "{{ vdc.name | slug }}" {
   delete_force             = {{ vdc.delete_force | default(false) | lower }}
   delete_recursive         = {{ vdc.delete_recursive | default(false) | lower }}
 {% if vdc.description %}
-  description              = "{{ vdc.description }}"
+  description              = "{{ vdc.description | hcl_escape }}"
 {% endif %}
 }

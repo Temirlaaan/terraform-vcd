@@ -31,10 +31,20 @@ export interface VdcConfig {
   description: string;
 }
 
+export interface EdgeSubnet {
+  gateway: string;
+  prefix_length: number;
+  primary_ip: string;
+  start_address?: string;
+  end_address?: string;
+}
+
 export interface EdgeConfig {
   name: string;
-  external_network: string;
-  gateway_ip: string;
+  external_network_name: string;
+  subnet: EdgeSubnet;
+  dedicate_external_network: boolean;
+  description?: string;
 }
 
 export interface NetworkConfig {

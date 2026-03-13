@@ -12,13 +12,17 @@ The ``token`` query parameter is required because browsers cannot send
 
 import asyncio
 import logging
+import uuid
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 from redis.asyncio import Redis
+from sqlalchemy import select
 
 from app.auth.keycloak import validate_ws_token
 from app.config import settings
 from app.core.tf_runner import log_channel
+from app.database import async_session
+from app.models.operation import Operation
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +46,21 @@ async def terraform_ws(
         logger.warning("WS auth failed for operation=%s", operation_id)
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
+
+    # --- Validate operation_id is a real UUID and exists in DB ---
+    try:
+        op_uuid = uuid.UUID(operation_id)
+    except ValueError:
+        logger.warning("WS invalid operation_id=%s from user=%s", operation_id, user.username)
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    async with async_session() as db:
+        result = await db.execute(select(Operation.id).where(Operation.id == op_uuid))
+        if result.scalar_one_or_none() is None:
+            logger.warning("WS operation not found: id=%s user=%s", operation_id, user.username)
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
 
     logger.info("WS connected: user=%s operation=%s", user.username, operation_id)
     await websocket.accept()

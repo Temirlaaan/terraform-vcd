@@ -1,0 +1,32 @@
+data "vcd_external_network_v2" "{{ edge.external_network_name | slug }}" {
+  name = "{{ edge.external_network_name | hcl_escape }}"
+}
+
+data "vcd_org_vdc" "{{ vdc.name | slug }}_for_edge" {
+  org  = "{{ org.name | hcl_escape }}"
+  name = "{{ vdc.name | hcl_escape }}"
+}
+
+resource "vcd_nsxt_edgegateway" "{{ edge.name | slug }}" {
+  org                       = "{{ org.name | hcl_escape }}"
+  name                      = "{{ edge.name | hcl_escape }}"
+  owner_id                  = data.vcd_org_vdc.{{ vdc.name | slug }}_for_edge.id
+  external_network_id       = data.vcd_external_network_v2.{{ edge.external_network_name | slug }}.id
+  dedicate_external_network = {{ edge.dedicate_external_network | default(false) | lower }}
+{% if edge.description %}
+  description               = "{{ edge.description | hcl_escape }}"
+{% endif %}
+
+  subnet {
+    gateway       = "{{ edge.subnet.gateway | hcl_escape }}"
+    prefix_length = {{ edge.subnet.prefix_length | default(24) }}
+    primary_ip    = "{{ edge.subnet.primary_ip | hcl_escape }}"
+{% if edge.subnet.start_address is defined and edge.subnet.start_address and edge.subnet.end_address is defined and edge.subnet.end_address %}
+
+    allocated_ips {
+      start_address = "{{ edge.subnet.start_address | hcl_escape }}"
+      end_address   = "{{ edge.subnet.end_address | hcl_escape }}"
+    }
+{% endif %}
+  }
+}

@@ -1,6 +1,7 @@
 from redis.asyncio import Redis
 
 from app.config import settings
+from app.core.hcl_generator import _slug
 
 # Default lock TTL — auto-releases if the holder crashes.
 _DEFAULT_LOCK_TTL_SECONDS = 600  # 10 minutes
@@ -9,6 +10,15 @@ _LOCK_PREFIX = "tf:lock:org:"
 
 def _redis() -> Redis:
     return Redis.from_url(settings.redis_url, decode_responses=True)
+
+
+def _lock_key(org_name: str) -> str:
+    """Build a normalised Redis lock key for an organisation.
+
+    Uses _slug() so the key matches the workspace directory name and
+    prevents two differently-formatted org names from getting separate locks.
+    """
+    return f"{_LOCK_PREFIX}{_slug(org_name)}"
 
 
 async def acquire_org_lock(
@@ -26,7 +36,7 @@ async def acquire_org_lock(
     redis = _redis()
     try:
         acquired = await redis.set(
-            f"{_LOCK_PREFIX}{org_name}",
+            _lock_key(org_name),
             operation_id,
             nx=True,
             ex=ttl,
@@ -51,7 +61,7 @@ async def release_org_lock(org_name: str, operation_id: str) -> bool:
     """
     redis = _redis()
     try:
-        result = await redis.eval(script, 1, f"{_LOCK_PREFIX}{org_name}", operation_id)
+        result = await redis.eval(script, 1, _lock_key(org_name), operation_id)
         return result == 1
     finally:
         await redis.aclose()
@@ -61,6 +71,6 @@ async def get_org_lock_holder(org_name: str) -> str | None:
     """Return the operation_id that currently holds the lock, or None."""
     redis = _redis()
     try:
-        return await redis.get(f"{_LOCK_PREFIX}{org_name}")
+        return await redis.get(_lock_key(org_name))
     finally:
         await redis.aclose()

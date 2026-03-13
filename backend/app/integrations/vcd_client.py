@@ -6,6 +6,7 @@ Uses the CloudAPI (``/cloudapi/1.0.0/...``) with OAuth token exchange
 load.  The cache TTL is 5 minutes.
 """
 
+import asyncio
 import logging
 import time
 from urllib.parse import urlparse
@@ -29,6 +30,7 @@ class VCDClient:
         self._api_token = settings.vcd_api_token
         self._bearer_token: str | None = None
         self._token_expires_at: float = 0
+        self._token_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # Auth — OAuth token exchange
@@ -37,35 +39,40 @@ class VCDClient:
     async def _get_bearer_token(
         self, client: httpx.AsyncClient, force_refresh: bool = False
     ) -> str:
-        """Exchange VCD API refresh token for a short-lived Bearer token."""
-        now = time.time()
-        if (
-            not force_refresh
-            and self._bearer_token
-            and now < self._token_expires_at - 300
-        ):
+        """Exchange VCD API refresh token for a short-lived Bearer token.
+
+        Uses an asyncio.Lock to prevent concurrent token exchanges when
+        multiple requests hit the client simultaneously.
+        """
+        async with self._token_lock:
+            now = time.time()
+            if (
+                not force_refresh
+                and self._bearer_token
+                and now < self._token_expires_at - 300
+            ):
+                return self._bearer_token
+
+            parts = urlparse(self._base)
+            token_url = f"{parts.scheme}://{parts.netloc}/oauth/provider/token"
+
+            logger.info("Exchanging API token for Bearer token at %s", token_url)
+            resp = await client.post(
+                token_url,
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": self._api_token,
+                },
+                headers={"Accept": "application/json"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            self._bearer_token = data["access_token"]
+            self._token_expires_at = now + int(data.get("expires_in", 3600))
+            logger.info("VCD Bearer token obtained, expires in %ss", data.get("expires_in"))
             return self._bearer_token
-
-        parts = urlparse(self._base)
-        token_url = f"{parts.scheme}://{parts.netloc}/oauth/provider/token"
-
-        logger.info("Exchanging API token for Bearer token at %s", token_url)
-        resp = await client.post(
-            token_url,
-            data={
-                "grant_type": "refresh_token",
-                "refresh_token": self._api_token,
-            },
-            headers={"Accept": "application/json"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-        self._bearer_token = data["access_token"]
-        self._token_expires_at = now + int(data.get("expires_in", 3600))
-        logger.info("VCD Bearer token obtained, expires in %ss", data.get("expires_in"))
-        return self._bearer_token
 
     def _headers(self) -> dict[str, str]:
         return {

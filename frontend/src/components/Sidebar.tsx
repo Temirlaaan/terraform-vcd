@@ -1,6 +1,7 @@
 import {
   Building2,
   HardDrive,
+  Network,
   ChevronRight,
   RotateCcw,
   Play,
@@ -17,6 +18,7 @@ import {
   useOrganizations,
   useProviderVdcs,
   useStorageProfiles,
+  useExternalNetworks,
   usePlan,
   useApply,
 } from "@/api/hooks";
@@ -200,12 +202,81 @@ function VdcSection() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Edge Gateway Section                                              */
+/* ------------------------------------------------------------------ */
+
+function EdgeSection() {
+  const edge = useConfigStore((s) => s.edge);
+  const setEdge = useConfigStore((s) => s.setEdge);
+  const setEdgeSubnet = useConfigStore((s) => s.setEdgeSubnet);
+
+  const { data: extNets, isLoading: extNetsLoading } = useExternalNetworks();
+
+  const extNetOptions = useMemo<SelectOption[]>(
+    () =>
+      (extNets ?? []).map((n: { name: string }) => ({
+        label: n.name,
+        value: n.name,
+      })),
+    [extNets]
+  );
+
+  return (
+    <Section
+      title="Edge Gateway"
+      icon={Network}
+      badge={edge.name ? "1" : undefined}
+    >
+      <FormInput
+        label="Edge Name"
+        value={edge.name}
+        onChange={(v) => setEdge({ name: v })}
+        placeholder="e.g. edge-gw-01"
+      />
+      <FormSelect
+        label="External Network"
+        value={edge.external_network_name}
+        onChange={(v) => setEdge({ external_network_name: v })}
+        options={extNetOptions}
+        placeholder="Select external network..."
+        isLoading={extNetsLoading}
+      />
+      <FormInput
+        label="Gateway IP"
+        value={edge.subnet.gateway}
+        onChange={(v) => setEdgeSubnet({ gateway: v })}
+        placeholder="e.g. 10.0.0.1"
+      />
+      <FormInput
+        label="Primary IP"
+        value={edge.subnet.primary_ip}
+        onChange={(v) => setEdgeSubnet({ primary_ip: v })}
+        placeholder="e.g. 10.0.0.1"
+      />
+      <FormInput
+        label="Prefix Length"
+        value={String(edge.subnet.prefix_length)}
+        onChange={(v) => setEdgeSubnet({ prefix_length: parseInt(v, 10) || 0 })}
+        placeholder="e.g. 24"
+      />
+      <FormInput
+        label="Description"
+        value={edge.description ?? ""}
+        onChange={(v) => setEdge({ description: v || undefined })}
+        placeholder="Optional description"
+      />
+    </Section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Action Bar (Plan / Apply buttons)                                 */
 /* ------------------------------------------------------------------ */
 
 function ActionBar() {
   const org = useConfigStore((s) => s.org);
   const vdc = useConfigStore((s) => s.vdc);
+  const edge = useConfigStore((s) => s.edge);
   const provider = useConfigStore((s) => s.provider);
   const backend = useConfigStore((s) => s.backend);
   const planStatus = useConfigStore((s) => s.planStatus);
@@ -221,7 +292,7 @@ function ActionBar() {
   const canApply = planStatus === "planned" && currentOperationId !== null && !applyMutation.isPending;
 
   const handlePlan = () => {
-    const config = { provider, backend, org, vdc };
+    const config = { provider, backend, org, vdc, edge };
     setOperation(null, "planning");
     openTerminal();
 
@@ -350,6 +421,7 @@ export function Sidebar() {
       <div className="flex-1 overflow-y-auto">
         <OrgSection />
         <VdcSection />
+        <EdgeSection />
       </div>
 
       {/* Plan / Apply buttons */}

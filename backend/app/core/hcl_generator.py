@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from jinja2 import Environment, FileSystemLoader
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
 
@@ -12,7 +12,23 @@ TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
 _SECTION_TEMPLATES: list[tuple[str, str]] = [
     ("org", "organization.tf.j2"),
     ("vdc", "vdc.tf.j2"),
+    ("edge", "edgegateway.tf.j2"),
 ]
+
+
+def _hcl_escape(value: str) -> str:
+    """Escape a string for safe interpolation inside HCL double-quoted strings.
+
+    Prevents injection by escaping backslashes, double quotes, newlines,
+    and dollar signs (which start interpolation in HCL).
+    """
+    value = str(value)
+    value = value.replace("\\", "\\\\")
+    value = value.replace('"', '\\"')
+    value = value.replace("\n", "\\n")
+    value = value.replace("\r", "\\r")
+    value = value.replace("$", "$$")
+    return value
 
 
 def _slug(value: str) -> str:
@@ -30,12 +46,13 @@ def _build_jinja_env(templates_dir: Path | None = None) -> Environment:
     loader = FileSystemLoader(str(templates_dir or TEMPLATES_DIR))
     env = Environment(
         loader=loader,
-        autoescape=select_autoescape([]),
+        autoescape=False,
         keep_trailing_newline=True,
         trim_blocks=True,
         lstrip_blocks=True,
     )
     env.filters["slug"] = _slug
+    env.filters["hcl_escape"] = _hcl_escape
     return env
 
 

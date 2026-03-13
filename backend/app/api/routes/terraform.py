@@ -51,7 +51,7 @@ async def generate_hcl(
         hcl = _generator.generate(body.config.to_template_dict())
     except Exception as exc:
         logger.error("HCL generation failed: %s", exc)
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail="HCL generation failed. Check configuration values.")
     return TerraformGenerateResponse(hcl=hcl)
 
 
@@ -113,7 +113,10 @@ async def plan(
             operation.error_message = init_result.stderr
             operation.completed_at = datetime.now(timezone.utc)
             await db.commit()
-            raise HTTPException(status_code=500, detail=init_result.stderr)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Terraform init failed for operation {operation_id}. See logs for details.",
+            )
 
         # --- terraform plan ---
         plan_result = await runner.plan()
@@ -129,7 +132,10 @@ async def plan(
         await db.commit()
 
         if not plan_result.success:
-            raise HTTPException(status_code=500, detail=plan_result.stderr)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Terraform plan failed for operation {operation_id}. See logs for details.",
+            )
 
         return TerraformPlanResponse(operation_id=operation_id)
 
@@ -141,7 +147,10 @@ async def plan(
         operation.error_message = str(exc)
         operation.completed_at = datetime.now(timezone.utc)
         await db.commit()
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error during plan {operation_id}. See server logs.",
+        )
     finally:
         await release_org_lock(org_name, str(operation_id))
 
@@ -218,7 +227,10 @@ async def apply(
         await db.commit()
 
         if not apply_result.success:
-            raise HTTPException(status_code=500, detail=apply_result.stderr)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Terraform apply failed for operation {apply_id}. See logs for details.",
+            )
 
         return TerraformPlanResponse(operation_id=apply_id)
 
@@ -230,7 +242,10 @@ async def apply(
         operation.error_message = str(exc)
         operation.completed_at = datetime.now(timezone.utc)
         await db.commit()
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error during apply {apply_id}. See server logs.",
+        )
     finally:
         await release_org_lock(org_name, str(apply_id))
         # Cleanup workspace after apply completes

@@ -2,6 +2,8 @@ import { create } from "zustand";
 import type {
   OrgConfig,
   VdcConfig,
+  EdgeConfig,
+  EdgeSubnet,
   StorageProfile,
   ProviderConfig,
   BackendConfig,
@@ -42,6 +44,19 @@ const defaultVdc: VdcConfig = {
   description: "",
 };
 
+const defaultSubnet: EdgeSubnet = {
+  gateway: "",
+  prefix_length: 24,
+  primary_ip: "",
+};
+
+const defaultEdge: EdgeConfig = {
+  name: "",
+  external_network_name: "",
+  subnet: { ...defaultSubnet },
+  dedicate_external_network: false,
+};
+
 const defaultProvider: ProviderConfig = {
   org: "System",
   allow_unverified_ssl: true,
@@ -65,6 +80,7 @@ interface ConfigState {
   backend: BackendConfig;
   org: OrgConfig;
   vdc: VdcConfig;
+  edge: EdgeConfig;
 
   /* Execution */
   currentOperationId: string | null;
@@ -77,6 +93,8 @@ interface ConfigState {
   /* Actions */
   setOrg: (patch: Partial<OrgConfig>) => void;
   setVdc: (patch: Partial<VdcConfig>) => void;
+  setEdge: (patch: Partial<EdgeConfig>) => void;
+  setEdgeSubnet: (patch: Partial<EdgeSubnet>) => void;
   setProvider: (patch: Partial<ProviderConfig>) => void;
   setBackend: (patch: Partial<BackendConfig>) => void;
   addStorageProfile: () => void;
@@ -93,6 +111,7 @@ export const useConfigStore = create<ConfigState>((set) => ({
   backend: { ...defaultBackend },
   org: { ...defaultOrg },
   vdc: { ...defaultVdc },
+  edge: { ...defaultEdge, subnet: { ...defaultSubnet } },
   currentOperationId: null,
   planStatus: "idle",
   planError: null,
@@ -103,6 +122,14 @@ export const useConfigStore = create<ConfigState>((set) => ({
 
   setVdc: (patch) =>
     set((s) => ({ vdc: { ...s.vdc, ...patch } })),
+
+  setEdge: (patch) =>
+    set((s) => ({ edge: { ...s.edge, ...patch } })),
+
+  setEdgeSubnet: (patch) =>
+    set((s) => ({
+      edge: { ...s.edge, subnet: { ...s.edge.subnet, ...patch } },
+    })),
 
   setProvider: (patch) =>
     set((s) => ({ provider: { ...s.provider, ...patch } })),
@@ -154,6 +181,7 @@ export const useConfigStore = create<ConfigState>((set) => ({
       backend: { ...defaultBackend },
       org: { ...defaultOrg },
       vdc: { ...defaultVdc },
+      edge: { ...defaultEdge, subnet: { ...defaultSubnet } },
       currentOperationId: null,
       planStatus: "idle",
       planError: null,

@@ -7,6 +7,7 @@ endpoint and extracts user identity + AD-mapped realm roles.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -20,10 +21,12 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-#  JWKS cache (in-memory, refreshed on key miss)
+#  JWKS cache (in-memory, refreshed on key miss or after TTL)
 # ---------------------------------------------------------------------------
 
 _jwks_cache: dict[str, Any] | None = None
+_jwks_fetched_at: float = 0.0
+_JWKS_REFRESH_INTERVAL = 3600  # Re-fetch at least every hour
 
 
 async def _fetch_jwks() -> dict[str, Any]:
@@ -39,15 +42,16 @@ async def _fetch_jwks() -> dict[str, Any]:
 
 
 async def _get_jwks() -> dict[str, Any]:
-    global _jwks_cache
-    if _jwks_cache is None:
-        _jwks_cache = await _fetch_jwks()
+    global _jwks_cache, _jwks_fetched_at
+    if _jwks_cache is None or (time.monotonic() - _jwks_fetched_at > _JWKS_REFRESH_INTERVAL):
+        return await _refresh_jwks()
     return _jwks_cache
 
 
 async def _refresh_jwks() -> dict[str, Any]:
-    global _jwks_cache
+    global _jwks_cache, _jwks_fetched_at
     _jwks_cache = await _fetch_jwks()
+    _jwks_fetched_at = time.monotonic()
     return _jwks_cache
 
 

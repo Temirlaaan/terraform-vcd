@@ -48,8 +48,16 @@ class TerraformRunner:
         self._tf = settings.terraform_binary
 
     def _build_env(self) -> dict[str, str]:
-        """Build a subprocess environment with TF_VAR_* credential injection."""
-        env = os.environ.copy()
+        """Build a minimal subprocess environment with TF_VAR_* credential injection.
+
+        Only passes through essential variables to prevent leaking secrets
+        (DATABASE_URL, REDIS_URL, etc.) to terraform provider plugins.
+        """
+        env: dict[str, str] = {
+            "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+            "HOME": os.environ.get("HOME", "/root"),
+            "LANG": os.environ.get("LANG", "C.UTF-8"),
+        }
 
         # VCD credentials
         env["TF_VAR_vcd_url"] = settings.vcd_url
@@ -66,21 +74,13 @@ class TerraformRunner:
     # Internal execution helpers
     # ------------------------------------------------------------------
 
-    async def _publish(self, line: str) -> None:
-        """Publish a single line to the operation's Redis Pub/Sub channel."""
-        if not self.operation_id:
-            return
-        redis = Redis.from_url(settings.redis_url, decode_responses=True)
-        try:
-            await redis.publish(log_channel(self.operation_id), line)
-        finally:
-            await redis.aclose()
-
     async def _read_stream(
         self,
         stream: asyncio.StreamReader | None,
         label: str,
         collected: list[str],
+        redis: Redis | None,
+        channel: str,
     ) -> None:
         """Read an asyncio stream line-by-line, publish each line."""
         if stream is None:
@@ -91,41 +91,54 @@ class TerraformRunner:
                 break
             line = raw.decode("utf-8", errors="replace").rstrip("\n")
             collected.append(line)
-            await self._publish(f"[{label}] {line}")
+            if redis:
+                await redis.publish(channel, f"[{label}] {line}")
 
     async def _exec(self, *args: str) -> RunResult:
         """Run the terraform binary with the given arguments.
 
         If ``operation_id`` was provided, stdout and stderr are streamed
-        line-by-line to Redis Pub/Sub.  A final ``__EXIT:{code}`` sentinel
-        is published so WebSocket consumers know the process has ended.
+        line-by-line to Redis Pub/Sub.  A single Redis connection is reused
+        for all published lines.  A final ``__EXIT:{code}`` sentinel is
+        published so WebSocket consumers know the process has ended.
         """
-        proc = await asyncio.create_subprocess_exec(
-            self._tf,
-            *args,
-            cwd=str(self.work_dir),
-            env=self._build_env(),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        redis: Redis | None = None
+        channel = ""
+        if self.operation_id:
+            redis = Redis.from_url(settings.redis_url, decode_responses=True)
+            channel = log_channel(self.operation_id)
 
-        stdout_lines: list[str] = []
-        stderr_lines: list[str] = []
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                self._tf,
+                *args,
+                cwd=str(self.work_dir),
+                env=self._build_env(),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
 
-        await asyncio.gather(
-            self._read_stream(proc.stdout, "stdout", stdout_lines),
-            self._read_stream(proc.stderr, "stderr", stderr_lines),
-        )
-        await proc.wait()
+            stdout_lines: list[str] = []
+            stderr_lines: list[str] = []
 
-        code = proc.returncode or 0
-        await self._publish(f"__EXIT:{code}")
+            await asyncio.gather(
+                self._read_stream(proc.stdout, "stdout", stdout_lines, redis, channel),
+                self._read_stream(proc.stderr, "stderr", stderr_lines, redis, channel),
+            )
+            await proc.wait()
 
-        return RunResult(
-            return_code=code,
-            stdout="\n".join(stdout_lines),
-            stderr="\n".join(stderr_lines),
-        )
+            code = proc.returncode or 0
+            if redis:
+                await redis.publish(channel, f"__EXIT:{code}")
+
+            return RunResult(
+                return_code=code,
+                stdout="\n".join(stdout_lines),
+                stderr="\n".join(stderr_lines),
+            )
+        finally:
+            if redis:
+                await redis.aclose()
 
     # ------------------------------------------------------------------
     # Public Terraform commands

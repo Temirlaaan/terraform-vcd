@@ -1,6 +1,7 @@
 """Redis-backed cache with a simple decorator for async functions."""
 
 import functools
+import inspect
 import json
 from typing import Callable
 
@@ -49,8 +50,17 @@ def cached(prefix: str, ttl: int = _DEFAULT_TTL) -> Callable:
         @functools.wraps(fn)
         async def wrapper(*args, **kwargs):
             # Build a deterministic key from the arguments.
+            # Skip `self` for bound methods — its repr contains a memory
+            # address that changes across restarts, making the cache useless.
+            positional = args
+            if positional and hasattr(positional[0], "__dict__"):
+                sig = inspect.signature(fn)
+                params = list(sig.parameters.values())
+                if params and params[0].name == "self":
+                    positional = args[1:]
+
             parts = [prefix]
-            parts.extend(str(a) for a in args)
+            parts.extend(str(a) for a in positional)
             parts.extend(f"{k}={v}" for k, v in sorted(kwargs.items()))
             key = ":".join(parts)
 

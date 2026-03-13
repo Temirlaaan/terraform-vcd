@@ -1,15 +1,17 @@
+import ipaddress
 import re
 import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.operation import OperationStatus, OperationType
 
 # Regex for safe resource names — letters, digits, spaces, hyphens, underscores, parens.
+# Uses literal space (not \s) to block newlines, tabs, and other whitespace.
 # Blocks path traversal characters (slashes, dots) and shell metacharacters.
-_SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9\s\-_()]{1,255}$")
+_SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9 \-_()]{1,255}$")
 
 
 def _validate_safe_name(value: str, field_name: str) -> str:
@@ -85,12 +87,78 @@ class VdcConfig(BaseModel):
         return _validate_safe_name(v, "vdc.name")
 
 
+def _validate_ip(value: str, field_name: str) -> str:
+    """Validate that a string is a valid IPv4 or IPv6 address."""
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        raise ValueError(f"{field_name} must be a valid IP address, got '{value}'")
+    return value
+
+
+class EdgeSubnetConfig(BaseModel):
+    gateway: str = Field(..., min_length=1)
+    prefix_length: int = Field(default=24, ge=0, le=128)
+    primary_ip: str = Field(..., min_length=1)
+    start_address: str | None = None
+    end_address: str | None = None
+
+    @field_validator("gateway")
+    @classmethod
+    def validate_gateway(cls, v: str) -> str:
+        return _validate_ip(v, "subnet.gateway")
+
+    @field_validator("primary_ip")
+    @classmethod
+    def validate_primary_ip(cls, v: str) -> str:
+        return _validate_ip(v, "subnet.primary_ip")
+
+    @field_validator("start_address")
+    @classmethod
+    def validate_start_address(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return _validate_ip(v, "subnet.start_address")
+
+    @field_validator("end_address")
+    @classmethod
+    def validate_end_address(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return _validate_ip(v, "subnet.end_address")
+
+    @model_validator(mode="after")
+    def validate_ip_pool_pair(self) -> "EdgeSubnetConfig":
+        """Both start_address and end_address must be provided together."""
+        has_start = self.start_address is not None
+        has_end = self.end_address is not None
+        if has_start != has_end:
+            raise ValueError(
+                "start_address and end_address must both be provided or both omitted"
+            )
+        return self
+
+
+class EdgeGatewayConfig(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    external_network_name: str = Field(..., min_length=1)
+    subnet: EdgeSubnetConfig
+    dedicate_external_network: bool = False
+    description: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_edge_name(cls, v: str) -> str:
+        return _validate_safe_name(v, "edge.name")
+
+
 class TerraformConfig(BaseModel):
     """Typed configuration matching the Jinja2 template expectations."""
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     backend: BackendConfig = Field(default_factory=BackendConfig)
     org: OrgConfig | None = None
     vdc: VdcConfig | None = None
+    edge: EdgeGatewayConfig | None = None
 
     def to_template_dict(self) -> dict[str, Any]:
         """Convert to dict for Jinja2 rendering, excluding None values."""
@@ -102,6 +170,8 @@ class TerraformConfig(BaseModel):
             d["org"] = self.org.model_dump(exclude_none=True)
         if self.vdc is not None:
             d["vdc"] = self.vdc.model_dump(exclude_none=True)
+        if self.edge is not None:
+            d["edge"] = self.edge.model_dump(exclude_none=True)
         return d
 
 

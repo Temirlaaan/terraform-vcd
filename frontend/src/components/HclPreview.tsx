@@ -21,6 +21,7 @@ function generateHcl(state: {
   backend: { bucket: string; endpoint: string; region: string };
   org: { name: string; full_name: string; description: string; is_enabled: boolean; delete_force: boolean; delete_recursive: boolean };
   vdc: { name: string; provider_vdc_name: string; allocation_model: string; description: string };
+  edge: { name: string; external_network_name: string; subnet: { gateway: string; prefix_length: number; primary_ip: string; start_address?: string; end_address?: string }; dedicate_external_network: boolean; description?: string };
 }): string {
   const lines: string[] = [];
 
@@ -81,6 +82,46 @@ function generateHcl(state: {
     lines.push(`}`);
   }
 
+  // --- Edge Gateway (NSX-T) ---
+  if (state.edge.name && state.edge.external_network_name && state.edge.subnet.gateway) {
+    const extSlug = slug(state.edge.external_network_name);
+    const vdcSlug = slug(state.vdc.name);
+
+    lines.push(``);
+    lines.push(`data "vcd_external_network_v2" "${extSlug}" {`);
+    lines.push(`  name = "${state.edge.external_network_name}"`);
+    lines.push(`}`);
+    lines.push(``);
+    lines.push(`data "vcd_org_vdc" "${vdcSlug}_for_edge" {`);
+    lines.push(`  org  = "${state.org.name}"`);
+    lines.push(`  name = "${state.vdc.name}"`);
+    lines.push(`}`);
+    lines.push(``);
+    lines.push(`resource "vcd_nsxt_edgegateway" "${slug(state.edge.name)}" {`);
+    lines.push(`  org                       = "${state.org.name}"`);
+    lines.push(`  name                      = "${state.edge.name}"`);
+    lines.push(`  owner_id                  = data.vcd_org_vdc.${vdcSlug}_for_edge.id`);
+    lines.push(`  external_network_id       = data.vcd_external_network_v2.${extSlug}.id`);
+    lines.push(`  dedicate_external_network = ${state.edge.dedicate_external_network}`);
+    if (state.edge.description) {
+      lines.push(`  description               = "${state.edge.description}"`);
+    }
+    lines.push(``);
+    lines.push(`  subnet {`);
+    lines.push(`    gateway       = "${state.edge.subnet.gateway}"`);
+    lines.push(`    prefix_length = ${state.edge.subnet.prefix_length}`);
+    lines.push(`    primary_ip    = "${state.edge.subnet.primary_ip}"`);
+    if (state.edge.subnet.start_address && state.edge.subnet.end_address) {
+      lines.push(``);
+      lines.push(`    allocated_ips {`);
+      lines.push(`      start_address = "${state.edge.subnet.start_address}"`);
+      lines.push(`      end_address   = "${state.edge.subnet.end_address}"`);
+      lines.push(`    }`);
+    }
+    lines.push(`  }`);
+    lines.push(`}`);
+  }
+
   return lines.join("\n");
 }
 
@@ -108,7 +149,7 @@ function tokenizeLine(line: string): React.ReactNode {
 function colourKeywordLine(line: string): React.ReactNode {
   const match = line.match(/^(\s*)(resource|provider|variable|terraform|backend|data|output|locals|module)(.*)$/);
   if (!match) return line;
-  const [, indent, keyword, rest] = match;
+  const [, indent, keyword, rest = ""] = match;
   return (
     <>
       {indent}
@@ -155,7 +196,7 @@ export function HclPreview() {
 
   const hcl = useMemo(
     () => generateHcl(state),
-    [state.provider, state.backend, state.org, state.vdc]
+    [state.provider, state.backend, state.org, state.vdc, state.edge]
   );
 
   const handleCopy = async () => {
