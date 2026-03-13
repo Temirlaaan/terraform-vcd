@@ -4,6 +4,7 @@ import type {
   VdcConfig,
   EdgeConfig,
   EdgeSubnet,
+  NetworkConfig,
   StorageProfile,
   ProviderConfig,
   BackendConfig,
@@ -57,6 +58,12 @@ const defaultEdge: EdgeConfig = {
   dedicate_external_network: false,
 };
 
+const defaultNetwork: NetworkConfig = {
+  name: "",
+  gateway: "",
+  prefix_length: 24,
+};
+
 const defaultProvider: ProviderConfig = {
   org: "System",
   allow_unverified_ssl: true,
@@ -81,6 +88,7 @@ interface ConfigState {
   org: OrgConfig;
   vdc: VdcConfig;
   edge: EdgeConfig;
+  network: NetworkConfig;
 
   /* Execution */
   currentOperationId: string | null;
@@ -95,6 +103,7 @@ interface ConfigState {
   setVdc: (patch: Partial<VdcConfig>) => void;
   setEdge: (patch: Partial<EdgeConfig>) => void;
   setEdgeSubnet: (patch: Partial<EdgeSubnet>) => void;
+  setNetwork: (patch: Partial<NetworkConfig>) => void;
   setProvider: (patch: Partial<ProviderConfig>) => void;
   setBackend: (patch: Partial<BackendConfig>) => void;
   addStorageProfile: () => void;
@@ -112,6 +121,7 @@ export const useConfigStore = create<ConfigState>((set) => ({
   org: { ...defaultOrg },
   vdc: { ...defaultVdc },
   edge: { ...defaultEdge, subnet: { ...defaultSubnet } },
+  network: { ...defaultNetwork },
   currentOperationId: null,
   planStatus: "idle",
   planError: null,
@@ -130,6 +140,9 @@ export const useConfigStore = create<ConfigState>((set) => ({
     set((s) => ({
       edge: { ...s.edge, subnet: { ...s.edge.subnet, ...patch } },
     })),
+
+  setNetwork: (patch) =>
+    set((s) => ({ network: { ...s.network, ...patch } })),
 
   setProvider: (patch) =>
     set((s) => ({ provider: { ...s.provider, ...patch } })),
@@ -182,6 +195,7 @@ export const useConfigStore = create<ConfigState>((set) => ({
       org: { ...defaultOrg },
       vdc: { ...defaultVdc },
       edge: { ...defaultEdge, subnet: { ...defaultSubnet } },
+      network: { ...defaultNetwork },
       currentOperationId: null,
       planStatus: "idle",
       planError: null,

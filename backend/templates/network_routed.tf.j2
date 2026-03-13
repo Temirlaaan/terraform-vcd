@@ -1,0 +1,29 @@
+data "vcd_nsxt_edgegateway" "{{ edge.name | slug }}_for_network" {
+  org  = "{{ org.name | hcl_escape }}"
+  vdc  = "{{ vdc.name | hcl_escape }}"
+  name = "{{ edge.name | hcl_escape }}"
+}
+
+resource "vcd_network_routed_v2" "{{ network.name | slug }}" {
+  org             = "{{ org.name | hcl_escape }}"
+  name            = "{{ network.name | hcl_escape }}"
+  edge_gateway_id = data.vcd_nsxt_edgegateway.{{ edge.name | slug }}_for_network.id
+  gateway         = "{{ network.gateway | hcl_escape }}"
+  prefix_length   = {{ network.prefix_length | default(24) }}
+{% if network.dns1 %}
+  dns1            = "{{ network.dns1 | hcl_escape }}"
+{% endif %}
+{% if network.dns2 %}
+  dns2            = "{{ network.dns2 | hcl_escape }}"
+{% endif %}
+{% if network.description %}
+  description     = "{{ network.description | hcl_escape }}"
+{% endif %}
+{% if network.static_ip_pool %}
+
+  static_ip_pool {
+    start_address = "{{ network.static_ip_pool.start_address | hcl_escape }}"
+    end_address   = "{{ network.static_ip_pool.end_address | hcl_escape }}"
+  }
+{% endif %}
+}

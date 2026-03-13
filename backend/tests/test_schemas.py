@@ -6,7 +6,9 @@ from pydantic import ValidationError
 from app.schemas.terraform import (
     EdgeGatewayConfig,
     EdgeSubnetConfig,
+    NetworkStaticPoolConfig,
     OrgConfig,
+    RoutedNetworkConfig,
     TerraformConfig,
     TerraformDestroyRequest,
     VdcConfig,
@@ -239,6 +241,22 @@ class TestTerraformConfig:
         d = config.to_template_dict()
         assert "edge" not in d
 
+    def test_to_template_dict_with_network(self):
+        config = TerraformConfig(
+            org=OrgConfig(name="Acme"),
+            network=RoutedNetworkConfig(name="net-01", gateway="192.168.1.1"),
+        )
+        d = config.to_template_dict()
+        assert d["network"]["name"] == "net-01"
+        assert d["network"]["gateway"] == "192.168.1.1"
+        # None fields should be excluded
+        assert "dns1" not in d["network"]
+
+    def test_to_template_dict_without_network(self):
+        config = TerraformConfig(org=OrgConfig(name="Acme"))
+        d = config.to_template_dict()
+        assert "network" not in d
+
 
 # -----------------------------------------------------------------------
 #  EdgeGatewayConfig
@@ -411,6 +429,118 @@ class TestEdgeGatewayConfig:
         assert edge.subnet.start_address == "10.0.0.10"
         assert edge.dedicate_external_network is True
         assert edge.description == "Production edge"
+
+
+# -----------------------------------------------------------------------
+#  NetworkStaticPoolConfig
+# -----------------------------------------------------------------------
+
+
+class TestNetworkStaticPoolConfig:
+    def test_valid_pool(self):
+        pool = NetworkStaticPoolConfig(
+            start_address="192.168.1.10",
+            end_address="192.168.1.50",
+        )
+        assert pool.start_address == "192.168.1.10"
+        assert pool.end_address == "192.168.1.50"
+
+    def test_invalid_start_address_rejected(self):
+        with pytest.raises(ValidationError) as exc_info:
+            NetworkStaticPoolConfig(start_address="not-an-ip", end_address="192.168.1.50")
+        assert "valid IP address" in str(exc_info.value)
+
+    def test_invalid_end_address_rejected(self):
+        with pytest.raises(ValidationError) as exc_info:
+            NetworkStaticPoolConfig(start_address="192.168.1.10", end_address="abc")
+        assert "valid IP address" in str(exc_info.value)
+
+    def test_empty_start_address_rejected(self):
+        with pytest.raises(ValidationError):
+            NetworkStaticPoolConfig(start_address="", end_address="192.168.1.50")
+
+    def test_empty_end_address_rejected(self):
+        with pytest.raises(ValidationError):
+            NetworkStaticPoolConfig(start_address="192.168.1.10", end_address="")
+
+
+# -----------------------------------------------------------------------
+#  RoutedNetworkConfig
+# -----------------------------------------------------------------------
+
+
+class TestRoutedNetworkConfig:
+    def test_valid_network(self):
+        net = RoutedNetworkConfig(name="net-01", gateway="192.168.1.1")
+        assert net.name == "net-01"
+        assert net.gateway == "192.168.1.1"
+        assert net.prefix_length == 24
+
+    def test_name_validated_with_safe_name(self):
+        with pytest.raises(ValidationError) as exc_info:
+            RoutedNetworkConfig(name="../../evil", gateway="192.168.1.1")
+        assert "invalid characters" in str(exc_info.value)
+
+    def test_name_stripped(self):
+        net = RoutedNetworkConfig(name="  net-01  ", gateway="192.168.1.1")
+        assert net.name == "net-01"
+
+    def test_invalid_gateway_rejected(self):
+        with pytest.raises(ValidationError) as exc_info:
+            RoutedNetworkConfig(name="net-01", gateway="not-an-ip")
+        assert "valid IP address" in str(exc_info.value)
+
+    def test_dns1_validated_when_set(self):
+        net = RoutedNetworkConfig(name="net-01", gateway="192.168.1.1", dns1="8.8.8.8")
+        assert net.dns1 == "8.8.8.8"
+
+    def test_invalid_dns1_rejected(self):
+        with pytest.raises(ValidationError) as exc_info:
+            RoutedNetworkConfig(name="net-01", gateway="192.168.1.1", dns1="bad")
+        assert "valid IP address" in str(exc_info.value)
+
+    def test_dns2_validated_when_set(self):
+        net = RoutedNetworkConfig(name="net-01", gateway="192.168.1.1", dns2="8.8.4.4")
+        assert net.dns2 == "8.8.4.4"
+
+    def test_invalid_dns2_rejected(self):
+        with pytest.raises(ValidationError) as exc_info:
+            RoutedNetworkConfig(name="net-01", gateway="192.168.1.1", dns2="bad")
+        assert "valid IP address" in str(exc_info.value)
+
+    def test_defaults(self):
+        net = RoutedNetworkConfig(name="net-01", gateway="192.168.1.1")
+        assert net.prefix_length == 24
+        assert net.dns1 is None
+        assert net.dns2 is None
+        assert net.static_ip_pool is None
+        assert net.description is None
+
+    def test_all_fields(self):
+        net = RoutedNetworkConfig(
+            name="net-01",
+            gateway="192.168.1.1",
+            prefix_length=28,
+            dns1="8.8.8.8",
+            dns2="8.8.4.4",
+            static_ip_pool=NetworkStaticPoolConfig(
+                start_address="192.168.1.10",
+                end_address="192.168.1.50",
+            ),
+            description="Production network",
+        )
+        assert net.prefix_length == 28
+        assert net.dns1 == "8.8.8.8"
+        assert net.static_ip_pool.start_address == "192.168.1.10"
+        assert net.description == "Production network"
+
+    def test_prefix_length_negative_rejected(self):
+        with pytest.raises(ValidationError):
+            RoutedNetworkConfig(name="net-01", gateway="192.168.1.1", prefix_length=-1)
+
+    def test_prefix_length_over_128_rejected(self):
+        with pytest.raises(ValidationError):
+            RoutedNetworkConfig(name="net-01", gateway="192.168.1.1", prefix_length=129)
 
 
 # -----------------------------------------------------------------------

@@ -47,14 +47,19 @@ export interface EdgeConfig {
   description?: string;
 }
 
+export interface NetworkStaticPool {
+  start_address: string;
+  end_address: string;
+}
+
 export interface NetworkConfig {
   name: string;
   gateway: string;
   prefix_length: number;
-  dns1: string;
-  dns2: string;
-  static_ip_pool_start: string;
-  static_ip_pool_end: string;
+  dns1?: string;
+  dns2?: string;
+  static_ip_pool?: NetworkStaticPool;
+  description?: string;
 }
 
 export interface ProviderConfig {

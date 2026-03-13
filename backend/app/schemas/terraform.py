@@ -152,6 +152,57 @@ class EdgeGatewayConfig(BaseModel):
         return _validate_safe_name(v, "edge.name")
 
 
+class NetworkStaticPoolConfig(BaseModel):
+    """IP pool range for a routed network."""
+    start_address: str = Field(..., min_length=1)
+    end_address: str = Field(..., min_length=1)
+
+    @field_validator("start_address")
+    @classmethod
+    def validate_start_address(cls, v: str) -> str:
+        return _validate_ip(v, "static_ip_pool.start_address")
+
+    @field_validator("end_address")
+    @classmethod
+    def validate_end_address(cls, v: str) -> str:
+        return _validate_ip(v, "static_ip_pool.end_address")
+
+
+class RoutedNetworkConfig(BaseModel):
+    """Configuration for vcd_network_routed_v2 resource."""
+    name: str = Field(..., min_length=1, max_length=255)
+    gateway: str = Field(..., min_length=1)
+    prefix_length: int = Field(default=24, ge=0, le=128)
+    dns1: str | None = None
+    dns2: str | None = None
+    static_ip_pool: NetworkStaticPoolConfig | None = None
+    description: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_network_name(cls, v: str) -> str:
+        return _validate_safe_name(v, "network.name")
+
+    @field_validator("gateway")
+    @classmethod
+    def validate_gateway(cls, v: str) -> str:
+        return _validate_ip(v, "network.gateway")
+
+    @field_validator("dns1")
+    @classmethod
+    def validate_dns1(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return _validate_ip(v, "network.dns1")
+
+    @field_validator("dns2")
+    @classmethod
+    def validate_dns2(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return _validate_ip(v, "network.dns2")
+
+
 class TerraformConfig(BaseModel):
     """Typed configuration matching the Jinja2 template expectations."""
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
@@ -159,6 +210,7 @@ class TerraformConfig(BaseModel):
     org: OrgConfig | None = None
     vdc: VdcConfig | None = None
     edge: EdgeGatewayConfig | None = None
+    network: RoutedNetworkConfig | None = None
 
     def to_template_dict(self) -> dict[str, Any]:
         """Convert to dict for Jinja2 rendering, excluding None values."""
@@ -172,6 +224,8 @@ class TerraformConfig(BaseModel):
             d["vdc"] = self.vdc.model_dump(exclude_none=True)
         if self.edge is not None:
             d["edge"] = self.edge.model_dump(exclude_none=True)
+        if self.network is not None:
+            d["network"] = self.network.model_dump(exclude_none=True)
         return d
 
 

@@ -2,6 +2,7 @@ import {
   Building2,
   HardDrive,
   Network,
+  Wifi,
   ChevronRight,
   RotateCcw,
   Play,
@@ -270,6 +271,84 @@ function EdgeSection() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Network Section                                                   */
+/* ------------------------------------------------------------------ */
+
+function NetworkSection() {
+  const network = useConfigStore((s) => s.network);
+  const setNetwork = useConfigStore((s) => s.setNetwork);
+
+  return (
+    <Section
+      title="Routed Network"
+      icon={Wifi}
+      badge={network.name ? "1" : undefined}
+    >
+      <FormInput
+        label="Network Name"
+        value={network.name}
+        onChange={(v) => setNetwork({ name: v })}
+        placeholder="e.g. net-web-01"
+      />
+      <FormInput
+        label="Gateway"
+        value={network.gateway}
+        onChange={(v) => setNetwork({ gateway: v })}
+        placeholder="e.g. 192.168.1.1"
+      />
+      <FormInput
+        label="Prefix Length"
+        value={String(network.prefix_length)}
+        onChange={(v) => setNetwork({ prefix_length: parseInt(v, 10) || 0 })}
+        placeholder="e.g. 24"
+      />
+      <FormInput
+        label="DNS 1"
+        value={network.dns1 ?? ""}
+        onChange={(v) => setNetwork({ dns1: v || undefined })}
+        placeholder="e.g. 8.8.8.8 (optional)"
+      />
+      <FormInput
+        label="DNS 2"
+        value={network.dns2 ?? ""}
+        onChange={(v) => setNetwork({ dns2: v || undefined })}
+        placeholder="e.g. 8.8.4.4 (optional)"
+      />
+      <FormInput
+        label="Pool Start IP"
+        value={network.static_ip_pool?.start_address ?? ""}
+        onChange={(v) =>
+          setNetwork({
+            static_ip_pool: v
+              ? { start_address: v, end_address: network.static_ip_pool?.end_address ?? "" }
+              : undefined,
+          })
+        }
+        placeholder="e.g. 192.168.1.10 (optional)"
+      />
+      <FormInput
+        label="Pool End IP"
+        value={network.static_ip_pool?.end_address ?? ""}
+        onChange={(v) =>
+          setNetwork({
+            static_ip_pool: v
+              ? { start_address: network.static_ip_pool?.start_address ?? "", end_address: v }
+              : undefined,
+          })
+        }
+        placeholder="e.g. 192.168.1.50 (optional)"
+      />
+      <FormInput
+        label="Description"
+        value={network.description ?? ""}
+        onChange={(v) => setNetwork({ description: v || undefined })}
+        placeholder="Optional description"
+      />
+    </Section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Action Bar (Plan / Apply buttons)                                 */
 /* ------------------------------------------------------------------ */
 
@@ -277,6 +356,7 @@ function ActionBar() {
   const org = useConfigStore((s) => s.org);
   const vdc = useConfigStore((s) => s.vdc);
   const edge = useConfigStore((s) => s.edge);
+  const network = useConfigStore((s) => s.network);
   const provider = useConfigStore((s) => s.provider);
   const backend = useConfigStore((s) => s.backend);
   const planStatus = useConfigStore((s) => s.planStatus);
@@ -292,7 +372,7 @@ function ActionBar() {
   const canApply = planStatus === "planned" && currentOperationId !== null && !applyMutation.isPending;
 
   const handlePlan = () => {
-    const config = { provider, backend, org, vdc, edge };
+    const config = { provider, backend, org, vdc, edge, network };
     setOperation(null, "planning");
     openTerminal();
 
@@ -422,6 +502,7 @@ export function Sidebar() {
         <OrgSection />
         <VdcSection />
         <EdgeSection />
+        <NetworkSection />
       </div>
 
       {/* Plan / Apply buttons */}

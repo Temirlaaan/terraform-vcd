@@ -13,6 +13,7 @@ _SECTION_TEMPLATES: list[tuple[str, str]] = [
     ("org", "organization.tf.j2"),
     ("vdc", "vdc.tf.j2"),
     ("edge", "edgegateway.tf.j2"),
+    ("network", "network_routed.tf.j2"),
 ]
 
 

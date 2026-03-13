@@ -22,6 +22,7 @@ function generateHcl(state: {
   org: { name: string; full_name: string; description: string; is_enabled: boolean; delete_force: boolean; delete_recursive: boolean };
   vdc: { name: string; provider_vdc_name: string; allocation_model: string; description: string };
   edge: { name: string; external_network_name: string; subnet: { gateway: string; prefix_length: number; primary_ip: string; start_address?: string; end_address?: string }; dedicate_external_network: boolean; description?: string };
+  network: { name: string; gateway: string; prefix_length: number; dns1?: string; dns2?: string; static_ip_pool?: { start_address: string; end_address: string }; description?: string };
 }): string {
   const lines: string[] = [];
 
@@ -122,6 +123,42 @@ function generateHcl(state: {
     lines.push(`}`);
   }
 
+  // --- Routed Network ---
+  if (state.network.name && state.network.gateway && state.edge.name) {
+    const edgeSlug = slug(state.edge.name);
+
+    lines.push(``);
+    lines.push(`data "vcd_nsxt_edgegateway" "${edgeSlug}_for_network" {`);
+    lines.push(`  org  = "${state.org.name}"`);
+    lines.push(`  vdc  = "${state.vdc.name}"`);
+    lines.push(`  name = "${state.edge.name}"`);
+    lines.push(`}`);
+    lines.push(``);
+    lines.push(`resource "vcd_network_routed_v2" "${slug(state.network.name)}" {`);
+    lines.push(`  org             = "${state.org.name}"`);
+    lines.push(`  name            = "${state.network.name}"`);
+    lines.push(`  edge_gateway_id = data.vcd_nsxt_edgegateway.${edgeSlug}_for_network.id`);
+    lines.push(`  gateway         = "${state.network.gateway}"`);
+    lines.push(`  prefix_length   = ${state.network.prefix_length}`);
+    if (state.network.dns1) {
+      lines.push(`  dns1            = "${state.network.dns1}"`);
+    }
+    if (state.network.dns2) {
+      lines.push(`  dns2            = "${state.network.dns2}"`);
+    }
+    if (state.network.description) {
+      lines.push(`  description     = "${state.network.description}"`);
+    }
+    if (state.network.static_ip_pool) {
+      lines.push(``);
+      lines.push(`  static_ip_pool {`);
+      lines.push(`    start_address = "${state.network.static_ip_pool.start_address}"`);
+      lines.push(`    end_address   = "${state.network.static_ip_pool.end_address}"`);
+      lines.push(`  }`);
+    }
+    lines.push(`}`);
+  }
+
   return lines.join("\n");
 }
 
@@ -196,7 +233,7 @@ export function HclPreview() {
 
   const hcl = useMemo(
     () => generateHcl(state),
-    [state.provider, state.backend, state.org, state.vdc, state.edge]
+    [state.provider, state.backend, state.org, state.vdc, state.edge, state.network]
   );
 
   const handleCopy = async () => {

@@ -388,6 +388,113 @@ class TestHCLGeneratorEdge:
 
 
 # -----------------------------------------------------------------------
+#  HCLGenerator — vcd_network_routed_v2 template
+# -----------------------------------------------------------------------
+
+
+class TestHCLGeneratorNetwork:
+
+    def setup_method(self):
+        self.gen = HCLGenerator()
+
+    def _base_config(self, **network_overrides):
+        """Helper to build a config with org, vdc, edge, and network."""
+        network = {"name": "net-01", "gateway": "192.168.1.1", "prefix_length": 24}
+        network.update(network_overrides)
+        return {
+            "org": {"name": "Acme"},
+            "vdc": {"name": "Dev", "provider_vdc_name": "p1"},
+            "edge": {
+                "name": "gw-01",
+                "external_network_name": "ext-net",
+                "subnet": {
+                    "gateway": "10.0.0.1",
+                    "prefix_length": 24,
+                    "primary_ip": "10.0.0.1",
+                },
+            },
+            "network": network,
+        }
+
+    def test_network_resource_rendered(self):
+        hcl = self.gen.generate(self._base_config())
+        assert 'resource "vcd_network_routed_v2" "net_01"' in hcl
+
+    def test_network_data_source_for_edge(self):
+        hcl = self.gen.generate(self._base_config())
+        assert 'data "vcd_nsxt_edgegateway" "gw_01_for_network"' in hcl
+
+    def test_network_edge_gateway_id_references_data(self):
+        hcl = self.gen.generate(self._base_config())
+        assert "edge_gateway_id = data.vcd_nsxt_edgegateway.gw_01_for_network.id" in hcl
+
+    def test_network_static_ip_pool_rendered(self):
+        hcl = self.gen.generate(self._base_config(
+            static_ip_pool={
+                "start_address": "192.168.1.10",
+                "end_address": "192.168.1.50",
+            }
+        ))
+        assert "static_ip_pool {" in hcl
+        assert 'start_address = "192.168.1.10"' in hcl
+        assert 'end_address   = "192.168.1.50"' in hcl
+
+    def test_network_no_static_pool_when_absent(self):
+        hcl = self.gen.generate(self._base_config())
+        assert "static_ip_pool" not in hcl
+
+    def test_network_dns_rendered(self):
+        hcl = self.gen.generate(self._base_config(dns1="8.8.8.8", dns2="8.8.4.4"))
+        assert 'dns1            = "8.8.8.8"' in hcl
+        assert 'dns2            = "8.8.4.4"' in hcl
+
+    def test_network_no_dns_when_absent(self):
+        hcl = self.gen.generate(self._base_config())
+        assert "dns1" not in hcl
+        assert "dns2" not in hcl
+
+    def test_network_not_rendered_when_absent(self):
+        hcl = self.gen.generate({
+            "org": {"name": "Acme"},
+            "vdc": {"name": "Dev", "provider_vdc_name": "p1"},
+            "edge": {
+                "name": "gw-01",
+                "external_network_name": "ext-net",
+                "subnet": {
+                    "gateway": "10.0.0.1",
+                    "prefix_length": 24,
+                    "primary_ip": "10.0.0.1",
+                },
+            },
+        })
+        assert "vcd_network_routed_v2" not in hcl
+        assert "for_network" not in hcl
+
+    def test_network_description_escaped(self):
+        hcl = self.gen.generate(self._base_config(
+            description='Net for "testing"'
+        ))
+        assert 'Net for \\"testing\\"' in hcl
+
+    def test_network_gateway_and_prefix_rendered(self):
+        hcl = self.gen.generate(self._base_config(gateway="10.10.0.1", prefix_length=28))
+        assert 'gateway         = "10.10.0.1"' in hcl
+        assert "prefix_length   = 28" in hcl
+
+    def test_network_org_reference(self):
+        hcl = self.gen.generate(self._base_config())
+        # The network resource should reference the org
+        lines = hcl.split("\n")
+        in_network = False
+        for line in lines:
+            if 'resource "vcd_network_routed_v2"' in line:
+                in_network = True
+            if in_network and "org" in line and "=" in line:
+                assert '"Acme"' in line
+                break
+
+
+# -----------------------------------------------------------------------
 #  HCLGenerator — combined output
 # -----------------------------------------------------------------------
 
@@ -412,14 +519,20 @@ class TestHCLGeneratorCombined:
                     "primary_ip": "10.0.0.1",
                 },
             },
+            "network": {
+                "name": "net-01",
+                "gateway": "192.168.1.1",
+                "prefix_length": 24,
+            },
         })
         assert 'provider "vcd"' in hcl
         assert 'resource "vcd_org"' in hcl
         assert 'resource "vcd_org_vdc"' in hcl
         assert 'resource "vcd_nsxt_edgegateway"' in hcl
+        assert 'resource "vcd_network_routed_v2"' in hcl
 
     def test_sections_rendered_in_order(self):
-        """Base comes first, then org, then vdc, then edge."""
+        """Base comes first, then org, then vdc, then edge, then network."""
         hcl = self.gen.generate({
             "org": {"name": "A"},
             "vdc": {"name": "V", "provider_vdc_name": "p"},
@@ -432,12 +545,18 @@ class TestHCLGeneratorCombined:
                     "primary_ip": "10.0.0.1",
                 },
             },
+            "network": {
+                "name": "N",
+                "gateway": "192.168.1.1",
+                "prefix_length": 24,
+            },
         })
         provider_pos = hcl.index('provider "vcd"')
         org_pos = hcl.index('resource "vcd_org"')
         vdc_pos = hcl.index('resource "vcd_org_vdc"')
         edge_pos = hcl.index('resource "vcd_nsxt_edgegateway"')
-        assert provider_pos < org_pos < vdc_pos < edge_pos
+        network_pos = hcl.index('resource "vcd_network_routed_v2"')
+        assert provider_pos < org_pos < vdc_pos < edge_pos < network_pos
 
     def test_backend_state_key_uses_org_slug(self):
         hcl = self.gen.generate({"org": {"name": "My Org (prod)"}})
