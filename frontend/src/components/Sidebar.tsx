@@ -21,6 +21,7 @@ import {
   useOrganizations,
   useProviderVdcs,
   useStorageProfiles,
+  useNetworkPools,
   usePlan,
   useApply,
 } from "@/api/hooks";
@@ -167,6 +168,9 @@ function VdcSection() {
   const { data: storageProfiles } = useStorageProfiles(
     vdc.provider_vdc_name || undefined
   );
+  const { data: networkPools, isLoading: npLoading } = useNetworkPools(
+    vdc.provider_vdc_name || undefined
+  );
 
   const pvdcOptions = useMemo<SelectOption[]>(
     () =>
@@ -182,6 +186,15 @@ function VdcSection() {
     { label: "ReservationPool", value: "ReservationPool" },
     { label: "Flex", value: "Flex" },
   ];
+
+  const npOptions = useMemo<SelectOption[]>(
+    () =>
+      (networkPools ?? []).map((np) => ({
+        label: np.name,
+        value: np.name,
+      })),
+    [networkPools]
+  );
 
   const spOptions = useMemo<SelectOption[]>(
     () =>
@@ -266,12 +279,23 @@ function VdcSection() {
       <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 pt-2">
         Network
       </p>
-      <FormInput
-        label="Network Pool Name"
-        value={vdc.network_pool_name}
-        onChange={(v) => setVdc({ network_pool_name: v })}
-        placeholder="e.g. ALM-GENEVE-LAG"
-      />
+      {!npLoading && npOptions.length === 0 ? (
+        <FormInput
+          label="Network Pool Name"
+          value={vdc.network_pool_name}
+          onChange={(v) => setVdc({ network_pool_name: v })}
+          placeholder="e.g. ALM-GENEVE-LAG"
+        />
+      ) : (
+        <FormSelect
+          label="Network Pool Name"
+          value={vdc.network_pool_name}
+          onChange={(v) => setVdc({ network_pool_name: v })}
+          options={npOptions}
+          placeholder="Select network pool..."
+          isLoading={npLoading}
+        />
+      )}
 
       {/* Storage Profiles */}
       <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 pt-2">

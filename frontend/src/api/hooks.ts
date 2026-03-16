@@ -48,6 +48,13 @@ export interface EdgeGatewayItem {
   gateway_type: string | null;
 }
 
+export interface NetworkPoolItem {
+  name: string;
+  id: string;
+  poolType: string;
+  description: string | null;
+}
+
 export interface ExternalNetworkItem {
   name: string;
   description: string | null;
@@ -110,6 +117,21 @@ export function useStorageProfiles(pvdc?: string) {
     queryFn: async () => {
       const { data } = await api.get<MetadataResponse<StorageProfileItem>>(
         "/api/v1/metadata/storage-profiles",
+        { params: pvdc ? { pvdc } : {} }
+      );
+      return data.items;
+    },
+    staleTime: METADATA_STALE,
+    enabled: !!pvdc,
+  });
+}
+
+export function useNetworkPools(pvdc?: string) {
+  return useQuery({
+    queryKey: ["metadata", "network-pools", pvdc],
+    queryFn: async () => {
+      const { data } = await api.get<MetadataResponse<NetworkPoolItem>>(
+        "/api/v1/metadata/network-pools",
         { params: pvdc ? { pvdc } : {} }
       );
       return data.items;

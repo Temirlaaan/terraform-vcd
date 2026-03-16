@@ -84,19 +84,23 @@ class VCDClient:
     # HTTP helpers
     # ------------------------------------------------------------------
 
-    async def _get(self, path: str, params: dict | None = None) -> dict | list:
+    async def _get(
+        self, path: str, params: dict | None = None, headers: dict[str, str] | None = None
+    ) -> dict | list:
         """GET helper with automatic re-auth on 401."""
         async with httpx.AsyncClient(verify=settings.verify_ssl, timeout=30.0) as client:
             await self._get_bearer_token(client)
             url = f"{self._base}{path}"
+            req_headers = {**self._headers(), **(headers or {})}
 
             logger.debug("VCD GET %s params=%s", url, params)
-            resp = await client.get(url, headers=self._headers(), params=params)
+            resp = await client.get(url, headers=req_headers, params=params)
 
             if resp.status_code == 401:
                 logger.warning("VCD token expired, refreshing")
                 await self._get_bearer_token(client, force_refresh=True)
-                resp = await client.get(url, headers=self._headers(), params=params)
+                req_headers = {**self._headers(), **(headers or {})}
+                resp = await client.get(url, headers=req_headers, params=params)
 
             resp.raise_for_status()
             return resp.json()
@@ -214,11 +218,23 @@ class VCDClient:
             )
         return edges
 
+    async def _resolve_pvdc_id(self, pvdc_name: str) -> str | None:
+        """Resolve a Provider VDC name to its URN/ID via the cached list."""
+        pvdcs = await self.get_provider_vdcs()
+        for p in pvdcs:
+            if p["name"] == pvdc_name:
+                return p["id"]
+        return None
+
     @cached(prefix="vcd:storprof", ttl=_CACHE_TTL)
     async def get_storage_profiles(self, pvdc: str | None = None) -> list[dict]:
         params: dict = {}
         if pvdc:
-            params["filter"] = f"(providerVdc=={pvdc})"
+            pvdc_id = await self._resolve_pvdc_id(pvdc)
+            if pvdc_id is None:
+                logger.warning("Provider VDC '%s' not found, returning empty storage profiles", pvdc)
+                return []
+            params["filter"] = f"(providerVdcRef.id=={pvdc_id})"
         items = await self._get_paginated(
             "/cloudapi/1.0.0/pvdcStoragePolicies", params=params
         )
@@ -232,6 +248,37 @@ class VCDClient:
                 }
             )
         return profiles
+
+    @cached(prefix="vcd:netpools", ttl=_CACHE_TTL)
+    async def get_network_pools(self, pvdc: str | None = None) -> list[dict]:
+        """Return network pools via VCD Query API.
+
+        The CloudAPI ``/networkPools`` endpoint is not available on all VCD
+        versions, so we use the legacy Query API which is universally supported.
+        """
+        params: dict = {
+            "type": "networkPool",
+            "format": "records",
+            "pageSize": "128",
+        }
+        data = await self._get(
+            "/api/query",
+            params=params,
+            headers={"Accept": f"application/*+json;version={self._api_version}"},
+        )
+
+        pools: list[dict] = []
+        records = data.get("record", []) if isinstance(data, dict) else []
+        for rec in records:
+            pools.append(
+                {
+                    "name": rec.get("name", ""),
+                    "id": rec.get("href", ""),
+                    "poolType": str(rec.get("networkPoolType", "")),
+                    "description": rec.get("description"),
+                }
+            )
+        return pools
 
     @cached(prefix="vcd:extnet", ttl=_CACHE_TTL)
     async def get_external_networks(self) -> list[dict]:

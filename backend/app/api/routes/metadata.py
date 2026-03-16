@@ -72,6 +72,17 @@ async def list_edge_gateways(
     return {"items": edges, "count": len(edges)}
 
 
+@router.get("/network-pools")
+async def list_network_pools(pvdc: str | None = Query(None), user: AuthenticatedUser = Depends(_any_role)):
+    """Return network pools, optionally filtered by provider VDC name."""
+    try:
+        pools = await vcd_client.get_network_pools(pvdc=pvdc)
+    except Exception as exc:
+        logger.error("VCD API error: %s", exc)
+        raise HTTPException(status_code=502, detail="VCD API is unavailable. Try again later.")
+    return {"items": pools, "count": len(pools)}
+
+
 @router.get("/external-networks")
 async def list_external_networks(user: AuthenticatedUser = Depends(_any_role)):
     """Return external networks available for Edge Gateway uplinks."""
