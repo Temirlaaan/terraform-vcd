@@ -97,7 +97,7 @@ function generateHcl(state: {
     lines.push(`  elasticity                 = ${state.vdc.elasticity}`);
     lines.push(`  include_vm_memory_overhead = ${state.vdc.include_vm_memory_overhead}`);
     if (state.vdc.memory_guaranteed != null) {
-      lines.push(`  memory_guaranteed          = ${state.vdc.memory_guaranteed}`);
+      lines.push(`  memory_guaranteed          = ${(state.vdc.memory_guaranteed / 100).toFixed(2)}`);
     }
     lines.push(``);
     lines.push(`  compute_capacity {`);

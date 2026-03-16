@@ -9,7 +9,7 @@ resource "vcd_org_vdc" "{{ vdc.name | slug }}" {
   elasticity                 = {{ vdc.elasticity | default(false) | lower }}
   include_vm_memory_overhead = {{ vdc.include_vm_memory_overhead | default(true) | lower }}
 {% if vdc.memory_guaranteed is defined %}
-  memory_guaranteed          = {{ vdc.memory_guaranteed }}
+  memory_guaranteed          = {{ (vdc.memory_guaranteed / 100.0) | round(2) }}
 {% endif %}
 
   compute_capacity {
