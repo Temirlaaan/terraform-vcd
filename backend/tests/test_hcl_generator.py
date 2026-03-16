@@ -495,6 +495,201 @@ class TestHCLGeneratorNetwork:
 
 
 # -----------------------------------------------------------------------
+#  HCLGenerator — vcd_vapp template
+# -----------------------------------------------------------------------
+
+
+class TestHCLGeneratorVapp:
+
+    def setup_method(self):
+        self.gen = HCLGenerator()
+
+    def _base_config(self, **vapp_overrides):
+        """Helper to build a config with org, vdc, and vapp."""
+        vapp = {"name": "web-app", "power_on": False}
+        vapp.update(vapp_overrides)
+        return {
+            "org": {"name": "Acme"},
+            "vdc": {"name": "Dev", "provider_vdc_name": "p1"},
+            "vapp": vapp,
+        }
+
+    def test_vapp_resource_rendered(self):
+        hcl = self.gen.generate(self._base_config())
+        assert 'resource "vcd_vapp" "web_app"' in hcl
+
+    def test_vapp_data_source_for_vdc(self):
+        hcl = self.gen.generate(self._base_config())
+        assert 'data "vcd_org_vdc" "dev_for_vapp"' in hcl
+
+    def test_vapp_vdc_references_data(self):
+        hcl = self.gen.generate(self._base_config())
+        assert "vdc      = data.vcd_org_vdc.dev_for_vapp.name" in hcl
+
+    def test_vapp_power_on_default_false(self):
+        hcl = self.gen.generate(self._base_config())
+        assert "power_on = false" in hcl
+
+    def test_vapp_power_on_true(self):
+        hcl = self.gen.generate(self._base_config(power_on=True))
+        assert "power_on = true" in hcl
+
+    def test_vapp_description_rendered(self):
+        hcl = self.gen.generate(self._base_config(description="My vApp"))
+        assert 'description = "My vApp"' in hcl
+
+    def test_vapp_no_description_when_absent(self):
+        hcl = self.gen.generate(self._base_config())
+        assert "description" not in hcl
+
+    def test_vapp_not_rendered_when_absent(self):
+        hcl = self.gen.generate({
+            "org": {"name": "Acme"},
+            "vdc": {"name": "Dev", "provider_vdc_name": "p1"},
+        })
+        assert "vcd_vapp" not in hcl
+        assert "for_vapp" not in hcl
+
+    def test_vapp_description_escaped(self):
+        hcl = self.gen.generate(self._base_config(description='App for "testing"'))
+        assert 'App for \\"testing\\"' in hcl
+
+
+# -----------------------------------------------------------------------
+#  HCLGenerator — vcd_vapp_vm template
+# -----------------------------------------------------------------------
+
+
+class TestHCLGeneratorVm:
+
+    def setup_method(self):
+        self.gen = HCLGenerator()
+
+    def _base_config(self, **vm_overrides):
+        """Helper to build a config with org, vdc, vapp, and vm."""
+        vm = {
+            "name": "web-01",
+            "computer_name": "web01",
+            "catalog_name": "my-catalog",
+            "template_name": "ubuntu-22",
+            "memory": 1024,
+            "cpus": 1,
+            "cpu_cores": 1,
+            "power_on": True,
+        }
+        vm.update(vm_overrides)
+        return {
+            "org": {"name": "Acme"},
+            "vdc": {"name": "Dev", "provider_vdc_name": "p1"},
+            "vapp": {"name": "web-app"},
+            "vm": vm,
+        }
+
+    def test_vm_resource_rendered(self):
+        hcl = self.gen.generate(self._base_config())
+        assert 'resource "vcd_vapp_vm" "web_01"' in hcl
+
+    def test_catalog_data_source(self):
+        hcl = self.gen.generate(self._base_config())
+        assert 'data "vcd_catalog" "my_catalog"' in hcl
+
+    def test_template_data_source(self):
+        hcl = self.gen.generate(self._base_config())
+        assert 'data "vcd_catalog_vapp_template" "ubuntu_22"' in hcl
+
+    def test_template_refs_catalog(self):
+        hcl = self.gen.generate(self._base_config())
+        assert "data.vcd_catalog.my_catalog.id" in hcl
+
+    def test_vapp_template_id_refs_data(self):
+        hcl = self.gen.generate(self._base_config())
+        assert "data.vcd_catalog_vapp_template.ubuntu_22.id" in hcl
+
+    def test_compute_values(self):
+        hcl = self.gen.generate(self._base_config(memory=2048, cpus=4, cpu_cores=2))
+        assert "memory           = 2048" in hcl
+        assert "cpus             = 4" in hcl
+        assert "cpu_cores        = 2" in hcl
+
+    def test_power_on_true_default(self):
+        hcl = self.gen.generate(self._base_config())
+        assert "power_on         = true" in hcl
+
+    def test_power_on_false(self):
+        hcl = self.gen.generate(self._base_config(power_on=False))
+        assert "power_on         = false" in hcl
+
+    def test_network_block_rendered(self):
+        hcl = self.gen.generate(self._base_config(
+            network={"type": "org", "name": "net-01", "ip_allocation_mode": "POOL"}
+        ))
+        assert "network {" in hcl
+        assert 'type               = "org"' in hcl
+        assert 'name               = "net-01"' in hcl
+        assert 'ip_allocation_mode = "POOL"' in hcl
+
+    def test_network_manual_ip(self):
+        hcl = self.gen.generate(self._base_config(
+            network={"type": "org", "name": "net-01", "ip_allocation_mode": "MANUAL", "ip": "10.0.0.5"}
+        ))
+        assert 'ip                 = "10.0.0.5"' in hcl
+
+    def test_no_network_when_absent(self):
+        hcl = self.gen.generate(self._base_config())
+        assert "network {" not in hcl
+
+    def test_storage_profile(self):
+        hcl = self.gen.generate(self._base_config(storage_profile="Gold"))
+        assert 'storage_profile  = "Gold"' in hcl
+
+    def test_no_storage_profile(self):
+        hcl = self.gen.generate(self._base_config())
+        assert "storage_profile" not in hcl
+
+    def test_description(self):
+        hcl = self.gen.generate(self._base_config(description="My VM"))
+        assert 'description      = "My VM"' in hcl
+
+    def test_description_escaped(self):
+        hcl = self.gen.generate(self._base_config(description='VM for "testing"'))
+        assert 'VM for \\"testing\\"' in hcl
+
+    def test_not_rendered_when_absent(self):
+        hcl = self.gen.generate({
+            "org": {"name": "Acme"},
+            "vdc": {"name": "Dev", "provider_vdc_name": "p1"},
+            "vapp": {"name": "web-app"},
+        })
+        assert "vcd_vapp_vm" not in hcl
+        assert "vcd_catalog" not in hcl
+
+    def test_vm_references_vapp_name(self):
+        hcl = self.gen.generate(self._base_config())
+        assert 'vapp_name        = "web-app"' in hcl
+
+    def test_vm_references_org_and_vdc(self):
+        hcl = self.gen.generate(self._base_config())
+        # Within the vcd_vapp_vm resource block
+        lines = hcl.split("\n")
+        in_vm = False
+        found_org = False
+        found_vdc = False
+        for line in lines:
+            if 'resource "vcd_vapp_vm"' in line:
+                in_vm = True
+            if in_vm and line.strip().startswith("org") and "=" in line:
+                assert '"Acme"' in line
+                found_org = True
+            if in_vm and line.strip().startswith("vdc") and "=" in line:
+                assert '"Dev"' in line
+                found_vdc = True
+            if in_vm and line.strip() == "}":
+                break
+        assert found_org
+        assert found_vdc
+
+
+# -----------------------------------------------------------------------
 #  HCLGenerator — combined output
 # -----------------------------------------------------------------------
 
@@ -524,15 +719,24 @@ class TestHCLGeneratorCombined:
                 "gateway": "192.168.1.1",
                 "prefix_length": 24,
             },
+            "vapp": {"name": "web-app"},
+            "vm": {
+                "name": "web-01",
+                "computer_name": "web01",
+                "catalog_name": "my-catalog",
+                "template_name": "ubuntu-22",
+            },
         })
         assert 'provider "vcd"' in hcl
         assert 'resource "vcd_org"' in hcl
         assert 'resource "vcd_org_vdc"' in hcl
         assert 'resource "vcd_nsxt_edgegateway"' in hcl
         assert 'resource "vcd_network_routed_v2"' in hcl
+        assert 'resource "vcd_vapp"' in hcl
+        assert 'resource "vcd_vapp_vm"' in hcl
 
     def test_sections_rendered_in_order(self):
-        """Base comes first, then org, then vdc, then edge, then network."""
+        """Base comes first, then org, vdc, edge, network, vapp, vm."""
         hcl = self.gen.generate({
             "org": {"name": "A"},
             "vdc": {"name": "V", "provider_vdc_name": "p"},
@@ -550,13 +754,22 @@ class TestHCLGeneratorCombined:
                 "gateway": "192.168.1.1",
                 "prefix_length": 24,
             },
+            "vapp": {"name": "APP"},
+            "vm": {
+                "name": "VM1",
+                "computer_name": "vm1",
+                "catalog_name": "cat",
+                "template_name": "tpl",
+            },
         })
         provider_pos = hcl.index('provider "vcd"')
         org_pos = hcl.index('resource "vcd_org"')
         vdc_pos = hcl.index('resource "vcd_org_vdc"')
         edge_pos = hcl.index('resource "vcd_nsxt_edgegateway"')
         network_pos = hcl.index('resource "vcd_network_routed_v2"')
-        assert provider_pos < org_pos < vdc_pos < edge_pos < network_pos
+        vapp_pos = hcl.index('resource "vcd_vapp"')
+        vm_pos = hcl.index('resource "vcd_vapp_vm"')
+        assert provider_pos < org_pos < vdc_pos < edge_pos < network_pos < vapp_pos < vm_pos
 
     def test_backend_state_key_uses_org_slug(self):
         hcl = self.gen.generate({"org": {"name": "My Org (prod)"}})

@@ -11,7 +11,10 @@ from app.schemas.terraform import (
     RoutedNetworkConfig,
     TerraformConfig,
     TerraformDestroyRequest,
+    VappConfig,
+    VappVmConfig,
     VdcConfig,
+    VmNetworkConfig,
     _validate_safe_name,
 )
 
@@ -256,6 +259,48 @@ class TestTerraformConfig:
         config = TerraformConfig(org=OrgConfig(name="Acme"))
         d = config.to_template_dict()
         assert "network" not in d
+
+    def test_to_template_dict_with_vapp(self):
+        config = TerraformConfig(
+            org=OrgConfig(name="Acme"),
+            vapp=VappConfig(name="my-app"),
+        )
+        d = config.to_template_dict()
+        assert d["vapp"]["name"] == "my-app"
+        assert d["vapp"]["power_on"] is False
+
+    def test_to_template_dict_without_vapp(self):
+        config = TerraformConfig(org=OrgConfig(name="Acme"))
+        d = config.to_template_dict()
+        assert "vapp" not in d
+
+    def test_to_template_dict_with_vm(self):
+        config = TerraformConfig(
+            org=OrgConfig(name="Acme"),
+            vm=VappVmConfig(
+                name="web-01",
+                computer_name="web01",
+                catalog_name="my-catalog",
+                template_name="ubuntu-22",
+            ),
+        )
+        d = config.to_template_dict()
+        assert d["vm"]["name"] == "web-01"
+        assert d["vm"]["computer_name"] == "web01"
+        assert d["vm"]["catalog_name"] == "my-catalog"
+        assert d["vm"]["template_name"] == "ubuntu-22"
+        assert d["vm"]["memory"] == 1024
+        assert d["vm"]["cpus"] == 1
+        assert d["vm"]["power_on"] is True
+        # None fields excluded
+        assert "storage_profile" not in d["vm"]
+        assert "description" not in d["vm"]
+        assert "network" not in d["vm"]
+
+    def test_to_template_dict_without_vm(self):
+        config = TerraformConfig(org=OrgConfig(name="Acme"))
+        d = config.to_template_dict()
+        assert "vm" not in d
 
 
 # -----------------------------------------------------------------------
@@ -541,6 +586,235 @@ class TestRoutedNetworkConfig:
     def test_prefix_length_over_128_rejected(self):
         with pytest.raises(ValidationError):
             RoutedNetworkConfig(name="net-01", gateway="192.168.1.1", prefix_length=129)
+
+
+# -----------------------------------------------------------------------
+#  VappConfig
+# -----------------------------------------------------------------------
+
+
+class TestVappConfig:
+    def test_valid_vapp_minimal(self):
+        vapp = VappConfig(name="my-app")
+        assert vapp.name == "my-app"
+        assert vapp.power_on is False
+        assert vapp.description is None
+
+    def test_name_validated_with_safe_name(self):
+        with pytest.raises(ValidationError) as exc_info:
+            VappConfig(name="../../evil")
+        assert "invalid characters" in str(exc_info.value)
+
+    def test_empty_name_rejected(self):
+        with pytest.raises(ValidationError):
+            VappConfig(name="")
+
+    def test_name_stripped(self):
+        vapp = VappConfig(name="  my-app  ")
+        assert vapp.name == "my-app"
+
+    def test_defaults(self):
+        vapp = VappConfig(name="app")
+        assert vapp.power_on is False
+        assert vapp.description is None
+
+    def test_all_fields(self):
+        vapp = VappConfig(
+            name="web-app",
+            description="Production vApp",
+            power_on=True,
+        )
+        assert vapp.name == "web-app"
+        assert vapp.description == "Production vApp"
+        assert vapp.power_on is True
+
+
+# -----------------------------------------------------------------------
+#  VmNetworkConfig
+# -----------------------------------------------------------------------
+
+
+class TestVmNetworkConfig:
+    def test_valid_minimal(self):
+        net = VmNetworkConfig(name="net-01")
+        assert net.name == "net-01"
+        assert net.type == "org"
+        assert net.ip_allocation_mode == "POOL"
+        assert net.ip is None
+
+    def test_default_pool(self):
+        net = VmNetworkConfig(name="net-01")
+        assert net.ip_allocation_mode == "POOL"
+
+    def test_invalid_mode_rejected(self):
+        with pytest.raises(ValidationError) as exc_info:
+            VmNetworkConfig(name="net-01", ip_allocation_mode="STATIC")
+        assert "POOL" in str(exc_info.value) or "ip_allocation_mode" in str(exc_info.value)
+
+    def test_manual_without_ip_rejected(self):
+        with pytest.raises(ValidationError) as exc_info:
+            VmNetworkConfig(name="net-01", ip_allocation_mode="MANUAL")
+        assert "ip is required" in str(exc_info.value)
+
+    def test_manual_with_ip_ok(self):
+        net = VmNetworkConfig(name="net-01", ip_allocation_mode="MANUAL", ip="10.0.0.5")
+        assert net.ip == "10.0.0.5"
+
+    def test_pool_ip_none_ok(self):
+        net = VmNetworkConfig(name="net-01", ip_allocation_mode="POOL")
+        assert net.ip is None
+
+    def test_invalid_ip_rejected(self):
+        with pytest.raises(ValidationError) as exc_info:
+            VmNetworkConfig(name="net-01", ip_allocation_mode="MANUAL", ip="not-an-ip")
+        assert "valid IP address" in str(exc_info.value)
+
+    def test_name_safe_name(self):
+        with pytest.raises(ValidationError) as exc_info:
+            VmNetworkConfig(name="../../evil")
+        assert "invalid characters" in str(exc_info.value)
+
+    def test_dhcp_mode_ok(self):
+        net = VmNetworkConfig(name="net-01", ip_allocation_mode="DHCP")
+        assert net.ip_allocation_mode == "DHCP"
+        assert net.ip is None
+
+
+# -----------------------------------------------------------------------
+#  VappVmConfig
+# -----------------------------------------------------------------------
+
+
+class TestVappVmConfig:
+    def test_valid_minimal(self):
+        vm = VappVmConfig(
+            name="web-01",
+            computer_name="web01",
+            catalog_name="my-catalog",
+            template_name="ubuntu-22",
+        )
+        assert vm.name == "web-01"
+        assert vm.computer_name == "web01"
+        assert vm.catalog_name == "my-catalog"
+        assert vm.template_name == "ubuntu-22"
+
+    def test_all_names_validated(self):
+        """All name fields go through _validate_safe_name."""
+        for field in ["name", "computer_name", "catalog_name", "template_name"]:
+            with pytest.raises(ValidationError) as exc_info:
+                VappVmConfig(
+                    **{
+                        "name": "ok",
+                        "computer_name": "ok",
+                        "catalog_name": "ok",
+                        "template_name": "ok",
+                        field: "../../evil",
+                    }
+                )
+            assert "invalid characters" in str(exc_info.value)
+
+    def test_empty_name_rejected(self):
+        with pytest.raises(ValidationError):
+            VappVmConfig(
+                name="",
+                computer_name="ok",
+                catalog_name="ok",
+                template_name="ok",
+            )
+
+    def test_defaults(self):
+        vm = VappVmConfig(
+            name="vm-01",
+            computer_name="vm01",
+            catalog_name="cat",
+            template_name="tpl",
+        )
+        assert vm.memory == 1024
+        assert vm.cpus == 1
+        assert vm.cpu_cores == 1
+        assert vm.power_on is True
+        assert vm.storage_profile is None
+        assert vm.network is None
+        assert vm.description is None
+
+    def test_memory_below_256_rejected(self):
+        with pytest.raises(ValidationError):
+            VappVmConfig(
+                name="vm",
+                computer_name="vm",
+                catalog_name="c",
+                template_name="t",
+                memory=128,
+            )
+
+    def test_cpus_below_1_rejected(self):
+        with pytest.raises(ValidationError):
+            VappVmConfig(
+                name="vm",
+                computer_name="vm",
+                catalog_name="c",
+                template_name="t",
+                cpus=0,
+            )
+
+    def test_cpu_cores_below_1_rejected(self):
+        with pytest.raises(ValidationError):
+            VappVmConfig(
+                name="vm",
+                computer_name="vm",
+                catalog_name="c",
+                template_name="t",
+                cpu_cores=0,
+            )
+
+    def test_all_fields_filled(self):
+        vm = VappVmConfig(
+            name="web-01",
+            computer_name="web01",
+            catalog_name="my-catalog",
+            template_name="ubuntu-22",
+            memory=2048,
+            cpus=4,
+            cpu_cores=2,
+            storage_profile="Gold",
+            network=VmNetworkConfig(name="net-01", ip_allocation_mode="MANUAL", ip="10.0.0.5"),
+            power_on=False,
+            description="Production VM",
+        )
+        assert vm.memory == 2048
+        assert vm.cpus == 4
+        assert vm.cpu_cores == 2
+        assert vm.storage_profile == "Gold"
+        assert vm.network.ip == "10.0.0.5"
+        assert vm.power_on is False
+        assert vm.description == "Production VM"
+
+    def test_network_none_ok(self):
+        vm = VappVmConfig(
+            name="vm",
+            computer_name="vm",
+            catalog_name="c",
+            template_name="t",
+        )
+        assert vm.network is None
+
+    def test_computer_name_max_63(self):
+        vm = VappVmConfig(
+            name="vm",
+            computer_name="a" * 63,
+            catalog_name="c",
+            template_name="t",
+        )
+        assert len(vm.computer_name) == 63
+
+    def test_computer_name_over_63_rejected(self):
+        with pytest.raises(ValidationError):
+            VappVmConfig(
+                name="vm",
+                computer_name="a" * 64,
+                catalog_name="c",
+                template_name="t",
+            )
 
 
 # -----------------------------------------------------------------------

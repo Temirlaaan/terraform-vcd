@@ -79,6 +79,8 @@ class VdcConfig(BaseModel):
     enable_fast_provisioning: bool = False
     delete_force: bool = False
     delete_recursive: bool = False
+    elasticity: bool = False
+    include_vm_memory_overhead: bool = True
     description: str | None = None
 
     @field_validator("name")
@@ -203,6 +205,90 @@ class RoutedNetworkConfig(BaseModel):
         return _validate_ip(v, "network.dns2")
 
 
+class VappConfig(BaseModel):
+    """Configuration for vcd_vapp resource."""
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str | None = None
+    power_on: bool = False
+
+    @field_validator("name")
+    @classmethod
+    def validate_vapp_name(cls, v: str) -> str:
+        return _validate_safe_name(v, "vapp.name")
+
+
+class VmNetworkConfig(BaseModel):
+    """Network adapter configuration for vcd_vapp_vm."""
+    type: str = "org"
+    name: str = Field(..., min_length=1, max_length=255)
+    ip_allocation_mode: str = "POOL"
+    ip: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_network_name(cls, v: str) -> str:
+        return _validate_safe_name(v, "vm.network.name")
+
+    @field_validator("ip_allocation_mode")
+    @classmethod
+    def validate_ip_allocation_mode(cls, v: str) -> str:
+        allowed = {"POOL", "DHCP", "MANUAL"}
+        if v not in allowed:
+            raise ValueError(
+                f"ip_allocation_mode must be one of {allowed}, got '{v}'"
+            )
+        return v
+
+    @field_validator("ip")
+    @classmethod
+    def validate_ip(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return _validate_ip(v, "vm.network.ip")
+
+    @model_validator(mode="after")
+    def validate_manual_requires_ip(self) -> "VmNetworkConfig":
+        """ip is required when ip_allocation_mode is MANUAL."""
+        if self.ip_allocation_mode == "MANUAL" and self.ip is None:
+            raise ValueError("ip is required when ip_allocation_mode is MANUAL")
+        return self
+
+
+class VappVmConfig(BaseModel):
+    """Configuration for vcd_vapp_vm resource."""
+    name: str = Field(..., min_length=1, max_length=255)
+    computer_name: str = Field(..., min_length=1, max_length=63)
+    catalog_name: str = Field(..., min_length=1, max_length=255)
+    template_name: str = Field(..., min_length=1, max_length=255)
+    memory: int = Field(default=1024, ge=256)
+    cpus: int = Field(default=1, ge=1)
+    cpu_cores: int = Field(default=1, ge=1)
+    storage_profile: str | None = None
+    network: VmNetworkConfig | None = None
+    power_on: bool = True
+    description: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_vm_name(cls, v: str) -> str:
+        return _validate_safe_name(v, "vm.name")
+
+    @field_validator("computer_name")
+    @classmethod
+    def validate_computer_name(cls, v: str) -> str:
+        return _validate_safe_name(v, "vm.computer_name")
+
+    @field_validator("catalog_name")
+    @classmethod
+    def validate_catalog_name(cls, v: str) -> str:
+        return _validate_safe_name(v, "vm.catalog_name")
+
+    @field_validator("template_name")
+    @classmethod
+    def validate_template_name(cls, v: str) -> str:
+        return _validate_safe_name(v, "vm.template_name")
+
+
 class TerraformConfig(BaseModel):
     """Typed configuration matching the Jinja2 template expectations."""
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
@@ -211,6 +297,8 @@ class TerraformConfig(BaseModel):
     vdc: VdcConfig | None = None
     edge: EdgeGatewayConfig | None = None
     network: RoutedNetworkConfig | None = None
+    vapp: VappConfig | None = None
+    vm: VappVmConfig | None = None
 
     def to_template_dict(self) -> dict[str, Any]:
         """Convert to dict for Jinja2 rendering, excluding None values."""
@@ -226,6 +314,10 @@ class TerraformConfig(BaseModel):
             d["edge"] = self.edge.model_dump(exclude_none=True)
         if self.network is not None:
             d["network"] = self.network.model_dump(exclude_none=True)
+        if self.vapp is not None:
+            d["vapp"] = self.vapp.model_dump(exclude_none=True)
+        if self.vm is not None:
+            d["vm"] = self.vm.model_dump(exclude_none=True)
         return d
 
 

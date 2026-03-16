@@ -1,0 +1,14 @@
+data "vcd_org_vdc" "{{ vdc.name | slug }}_for_vapp" {
+  org  = "{{ org.name | hcl_escape }}"
+  name = "{{ vdc.name | hcl_escape }}"
+}
+
+resource "vcd_vapp" "{{ vapp.name | slug }}" {
+  org      = "{{ org.name | hcl_escape }}"
+  vdc      = data.vcd_org_vdc.{{ vdc.name | slug }}_for_vapp.name
+  name     = "{{ vapp.name | hcl_escape }}"
+  power_on = {{ vapp.power_on | default(false) | lower }}
+{% if vapp.description %}
+  description = "{{ vapp.description | hcl_escape }}"
+{% endif %}
+}

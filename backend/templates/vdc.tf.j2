@@ -6,6 +6,9 @@ resource "vcd_org_vdc" "{{ vdc.name | slug }}" {
   network_pool_name = "{{ vdc.network_pool_name | default('') | hcl_escape }}"
   provider_vdc_name = "{{ vdc.provider_vdc_name | hcl_escape }}"
 
+  elasticity                 = {{ vdc.elasticity | default(false) | lower }}
+  include_vm_memory_overhead = {{ vdc.include_vm_memory_overhead | default(true) | lower }}
+
   compute_capacity {
     cpu {
       allocated = {{ vdc.cpu_allocated | default(0) }}

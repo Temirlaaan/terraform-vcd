@@ -14,6 +14,8 @@ _SECTION_TEMPLATES: list[tuple[str, str]] = [
     ("vdc", "vdc.tf.j2"),
     ("edge", "edgegateway.tf.j2"),
     ("network", "network_routed.tf.j2"),
+    ("vapp", "vapp.tf.j2"),
+    ("vm", "vapp_vm.tf.j2"),
 ]
 
 

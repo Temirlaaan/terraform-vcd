@@ -3,6 +3,8 @@ import {
   HardDrive,
   Network,
   Wifi,
+  Box,
+  Monitor,
   ChevronRight,
   RotateCcw,
   Play,
@@ -19,7 +21,6 @@ import {
   useOrganizations,
   useProviderVdcs,
   useStorageProfiles,
-  useExternalNetworks,
   usePlan,
   useApply,
 } from "@/api/hooks";
@@ -33,15 +34,32 @@ function Section({
   icon: Icon,
   badge,
   defaultOpen = false,
+  disabled = false,
   children,
 }: {
   title: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: string;
   defaultOpen?: boolean;
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+
+  if (disabled) {
+    return (
+      <div className="border-b border-slate-800 opacity-50">
+        <div className="flex w-full items-center gap-2.5 px-4 py-3 text-xs font-semibold tracking-wide uppercase text-slate-600 cursor-not-allowed">
+          <ChevronRight className="h-3.5 w-3.5" />
+          <Icon className="h-4 w-4" />
+          {title}
+          <span className="ml-auto text-[10px] font-normal italic text-slate-600">
+            Coming soon
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="border-b border-slate-800">
@@ -202,151 +220,9 @@ function VdcSection() {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Edge Gateway Section                                              */
-/* ------------------------------------------------------------------ */
-
-function EdgeSection() {
-  const edge = useConfigStore((s) => s.edge);
-  const setEdge = useConfigStore((s) => s.setEdge);
-  const setEdgeSubnet = useConfigStore((s) => s.setEdgeSubnet);
-
-  const { data: extNets, isLoading: extNetsLoading } = useExternalNetworks();
-
-  const extNetOptions = useMemo<SelectOption[]>(
-    () =>
-      (extNets ?? []).map((n: { name: string }) => ({
-        label: n.name,
-        value: n.name,
-      })),
-    [extNets]
-  );
-
-  return (
-    <Section
-      title="Edge Gateway"
-      icon={Network}
-      badge={edge.name ? "1" : undefined}
-    >
-      <FormInput
-        label="Edge Name"
-        value={edge.name}
-        onChange={(v) => setEdge({ name: v })}
-        placeholder="e.g. edge-gw-01"
-      />
-      <FormSelect
-        label="External Network"
-        value={edge.external_network_name}
-        onChange={(v) => setEdge({ external_network_name: v })}
-        options={extNetOptions}
-        placeholder="Select external network..."
-        isLoading={extNetsLoading}
-      />
-      <FormInput
-        label="Gateway IP"
-        value={edge.subnet.gateway}
-        onChange={(v) => setEdgeSubnet({ gateway: v })}
-        placeholder="e.g. 10.0.0.1"
-      />
-      <FormInput
-        label="Primary IP"
-        value={edge.subnet.primary_ip}
-        onChange={(v) => setEdgeSubnet({ primary_ip: v })}
-        placeholder="e.g. 10.0.0.1"
-      />
-      <FormInput
-        label="Prefix Length"
-        value={String(edge.subnet.prefix_length)}
-        onChange={(v) => setEdgeSubnet({ prefix_length: parseInt(v, 10) || 0 })}
-        placeholder="e.g. 24"
-      />
-      <FormInput
-        label="Description"
-        value={edge.description ?? ""}
-        onChange={(v) => setEdge({ description: v || undefined })}
-        placeholder="Optional description"
-      />
-    </Section>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Network Section                                                   */
-/* ------------------------------------------------------------------ */
-
-function NetworkSection() {
-  const network = useConfigStore((s) => s.network);
-  const setNetwork = useConfigStore((s) => s.setNetwork);
-
-  return (
-    <Section
-      title="Routed Network"
-      icon={Wifi}
-      badge={network.name ? "1" : undefined}
-    >
-      <FormInput
-        label="Network Name"
-        value={network.name}
-        onChange={(v) => setNetwork({ name: v })}
-        placeholder="e.g. net-web-01"
-      />
-      <FormInput
-        label="Gateway"
-        value={network.gateway}
-        onChange={(v) => setNetwork({ gateway: v })}
-        placeholder="e.g. 192.168.1.1"
-      />
-      <FormInput
-        label="Prefix Length"
-        value={String(network.prefix_length)}
-        onChange={(v) => setNetwork({ prefix_length: parseInt(v, 10) || 0 })}
-        placeholder="e.g. 24"
-      />
-      <FormInput
-        label="DNS 1"
-        value={network.dns1 ?? ""}
-        onChange={(v) => setNetwork({ dns1: v || undefined })}
-        placeholder="e.g. 8.8.8.8 (optional)"
-      />
-      <FormInput
-        label="DNS 2"
-        value={network.dns2 ?? ""}
-        onChange={(v) => setNetwork({ dns2: v || undefined })}
-        placeholder="e.g. 8.8.4.4 (optional)"
-      />
-      <FormInput
-        label="Pool Start IP"
-        value={network.static_ip_pool?.start_address ?? ""}
-        onChange={(v) =>
-          setNetwork({
-            static_ip_pool: v
-              ? { start_address: v, end_address: network.static_ip_pool?.end_address ?? "" }
-              : undefined,
-          })
-        }
-        placeholder="e.g. 192.168.1.10 (optional)"
-      />
-      <FormInput
-        label="Pool End IP"
-        value={network.static_ip_pool?.end_address ?? ""}
-        onChange={(v) =>
-          setNetwork({
-            static_ip_pool: v
-              ? { start_address: network.static_ip_pool?.start_address ?? "", end_address: v }
-              : undefined,
-          })
-        }
-        placeholder="e.g. 192.168.1.50 (optional)"
-      />
-      <FormInput
-        label="Description"
-        value={network.description ?? ""}
-        onChange={(v) => setNetwork({ description: v || undefined })}
-        placeholder="Optional description"
-      />
-    </Section>
-  );
-}
+// NOTE: EdgeSection, NetworkSection, VappSection, VmSection are temporarily
+// disabled (Coming soon). Re-enable by uncommenting and replacing the
+// disabled <Section> placeholders in the Sidebar component below.
 
 /* ------------------------------------------------------------------ */
 /*  Action Bar (Plan / Apply buttons)                                 */
@@ -357,6 +233,8 @@ function ActionBar() {
   const vdc = useConfigStore((s) => s.vdc);
   const edge = useConfigStore((s) => s.edge);
   const network = useConfigStore((s) => s.network);
+  const vapp = useConfigStore((s) => s.vapp);
+  const vm = useConfigStore((s) => s.vm);
   const provider = useConfigStore((s) => s.provider);
   const backend = useConfigStore((s) => s.backend);
   const planStatus = useConfigStore((s) => s.planStatus);
@@ -372,7 +250,7 @@ function ActionBar() {
   const canApply = planStatus === "planned" && currentOperationId !== null && !applyMutation.isPending;
 
   const handlePlan = () => {
-    const config = { provider, backend, org, vdc, edge, network };
+    const config = { provider, backend, org, vdc, edge, network, vapp, vm };
     setOperation(null, "planning");
     openTerminal();
 
@@ -501,8 +379,10 @@ export function Sidebar() {
       <div className="flex-1 overflow-y-auto">
         <OrgSection />
         <VdcSection />
-        <EdgeSection />
-        <NetworkSection />
+        <Section title="Edge Gateway" icon={Network} disabled>{null}</Section>
+        <Section title="Routed Network" icon={Wifi} disabled>{null}</Section>
+        <Section title="vApp" icon={Box} disabled>{null}</Section>
+        <Section title="Virtual Machine" icon={Monitor} disabled>{null}</Section>
       </div>
 
       {/* Plan / Apply buttons */}

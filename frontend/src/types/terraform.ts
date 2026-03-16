@@ -62,6 +62,33 @@ export interface NetworkConfig {
   description?: string;
 }
 
+export interface VappConfig {
+  name: string;
+  description?: string;
+  power_on: boolean;
+}
+
+export interface VmNetworkConfig {
+  type: string;
+  name: string;
+  ip_allocation_mode: string;
+  ip?: string;
+}
+
+export interface VappVmConfig {
+  name: string;
+  computer_name: string;
+  catalog_name: string;
+  template_name: string;
+  memory: number;
+  cpus: number;
+  cpu_cores: number;
+  storage_profile?: string;
+  network?: VmNetworkConfig;
+  power_on: boolean;
+  description?: string;
+}
+
 export interface ProviderConfig {
   org: string;
   allow_unverified_ssl: boolean;
@@ -80,4 +107,6 @@ export interface TerraformConfig {
   vdc: VdcConfig;
   edge: EdgeConfig;
   network: NetworkConfig;
+  vapp: VappConfig;
+  vm: VappVmConfig;
 }

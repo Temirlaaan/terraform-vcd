@@ -1,0 +1,40 @@
+data "vcd_catalog" "{{ vm.catalog_name | slug }}" {
+  org  = "{{ org.name | hcl_escape }}"
+  name = "{{ vm.catalog_name | hcl_escape }}"
+}
+
+data "vcd_catalog_vapp_template" "{{ vm.template_name | slug }}" {
+  org        = "{{ org.name | hcl_escape }}"
+  catalog_id = data.vcd_catalog.{{ vm.catalog_name | slug }}.id
+  name       = "{{ vm.template_name | hcl_escape }}"
+}
+
+resource "vcd_vapp_vm" "{{ vm.name | slug }}" {
+  org              = "{{ org.name | hcl_escape }}"
+  vdc              = "{{ vdc.name | hcl_escape }}"
+  vapp_name        = "{{ vapp.name | hcl_escape }}"
+  name             = "{{ vm.name | hcl_escape }}"
+  computer_name    = "{{ vm.computer_name | hcl_escape }}"
+  vapp_template_id = data.vcd_catalog_vapp_template.{{ vm.template_name | slug }}.id
+  memory           = {{ vm.memory | default(1024) }}
+  cpus             = {{ vm.cpus | default(1) }}
+  cpu_cores        = {{ vm.cpu_cores | default(1) }}
+  power_on         = {{ vm.power_on | default(true) | lower }}
+{% if vm.storage_profile %}
+  storage_profile  = "{{ vm.storage_profile | hcl_escape }}"
+{% endif %}
+{% if vm.description %}
+  description      = "{{ vm.description | hcl_escape }}"
+{% endif %}
+{% if vm.network %}
+
+  network {
+    type               = "{{ vm.network.type | default('org') | hcl_escape }}"
+    name               = "{{ vm.network.name | hcl_escape }}"
+    ip_allocation_mode = "{{ vm.network.ip_allocation_mode | default('POOL') | hcl_escape }}"
+{% if vm.network.ip %}
+    ip                 = "{{ vm.network.ip | hcl_escape }}"
+{% endif %}
+  }
+{% endif %}
+}

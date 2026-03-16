@@ -5,6 +5,9 @@ import type {
   EdgeConfig,
   EdgeSubnet,
   NetworkConfig,
+  VappConfig,
+  VappVmConfig,
+  VmNetworkConfig,
   StorageProfile,
   ProviderConfig,
   BackendConfig,
@@ -64,6 +67,28 @@ const defaultNetwork: NetworkConfig = {
   prefix_length: 24,
 };
 
+const defaultVapp: VappConfig = {
+  name: "",
+  power_on: false,
+};
+
+const defaultVmNetwork: VmNetworkConfig = {
+  type: "org",
+  name: "",
+  ip_allocation_mode: "POOL",
+};
+
+const defaultVm: VappVmConfig = {
+  name: "",
+  computer_name: "",
+  catalog_name: "",
+  template_name: "",
+  memory: 1024,
+  cpus: 1,
+  cpu_cores: 1,
+  power_on: true,
+};
+
 const defaultProvider: ProviderConfig = {
   org: "System",
   allow_unverified_ssl: true,
@@ -89,6 +114,8 @@ interface ConfigState {
   vdc: VdcConfig;
   edge: EdgeConfig;
   network: NetworkConfig;
+  vapp: VappConfig;
+  vm: VappVmConfig;
 
   /* Execution */
   currentOperationId: string | null;
@@ -104,6 +131,9 @@ interface ConfigState {
   setEdge: (patch: Partial<EdgeConfig>) => void;
   setEdgeSubnet: (patch: Partial<EdgeSubnet>) => void;
   setNetwork: (patch: Partial<NetworkConfig>) => void;
+  setVapp: (patch: Partial<VappConfig>) => void;
+  setVm: (patch: Partial<VappVmConfig>) => void;
+  setVmNetwork: (patch: Partial<VmNetworkConfig>) => void;
   setProvider: (patch: Partial<ProviderConfig>) => void;
   setBackend: (patch: Partial<BackendConfig>) => void;
   addStorageProfile: () => void;
@@ -122,6 +152,8 @@ export const useConfigStore = create<ConfigState>((set) => ({
   vdc: { ...defaultVdc },
   edge: { ...defaultEdge, subnet: { ...defaultSubnet } },
   network: { ...defaultNetwork },
+  vapp: { ...defaultVapp },
+  vm: { ...defaultVm },
   currentOperationId: null,
   planStatus: "idle",
   planError: null,
@@ -143,6 +175,20 @@ export const useConfigStore = create<ConfigState>((set) => ({
 
   setNetwork: (patch) =>
     set((s) => ({ network: { ...s.network, ...patch } })),
+
+  setVapp: (patch) =>
+    set((s) => ({ vapp: { ...s.vapp, ...patch } })),
+
+  setVm: (patch) =>
+    set((s) => ({ vm: { ...s.vm, ...patch } })),
+
+  setVmNetwork: (patch) =>
+    set((s) => ({
+      vm: {
+        ...s.vm,
+        network: { ...(s.vm.network ?? { ...defaultVmNetwork }), ...patch },
+      },
+    })),
 
   setProvider: (patch) =>
     set((s) => ({ provider: { ...s.provider, ...patch } })),
@@ -196,6 +242,8 @@ export const useConfigStore = create<ConfigState>((set) => ({
       vdc: { ...defaultVdc },
       edge: { ...defaultEdge, subnet: { ...defaultSubnet } },
       network: { ...defaultNetwork },
+      vapp: { ...defaultVapp },
+      vm: { ...defaultVm },
       currentOperationId: null,
       planStatus: "idle",
       planError: null,

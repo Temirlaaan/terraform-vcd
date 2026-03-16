@@ -23,6 +23,8 @@ function generateHcl(state: {
   vdc: { name: string; provider_vdc_name: string; allocation_model: string; description: string };
   edge: { name: string; external_network_name: string; subnet: { gateway: string; prefix_length: number; primary_ip: string; start_address?: string; end_address?: string }; dedicate_external_network: boolean; description?: string };
   network: { name: string; gateway: string; prefix_length: number; dns1?: string; dns2?: string; static_ip_pool?: { start_address: string; end_address: string }; description?: string };
+  vapp: { name: string; description?: string; power_on: boolean };
+  vm: { name: string; computer_name: string; catalog_name: string; template_name: string; memory: number; cpus: number; cpu_cores: number; storage_profile?: string; network?: { type: string; name: string; ip_allocation_mode: string; ip?: string }; power_on: boolean; description?: string };
 }): string {
   const lines: string[] = [];
 
@@ -159,6 +161,75 @@ function generateHcl(state: {
     lines.push(`}`);
   }
 
+  // --- vApp ---
+  if (state.vapp.name && state.vdc.name) {
+    const vdcSlug = slug(state.vdc.name);
+
+    lines.push(``);
+    lines.push(`data "vcd_org_vdc" "${vdcSlug}_for_vapp" {`);
+    lines.push(`  org  = "${state.org.name}"`);
+    lines.push(`  name = "${state.vdc.name}"`);
+    lines.push(`}`);
+    lines.push(``);
+    lines.push(`resource "vcd_vapp" "${slug(state.vapp.name)}" {`);
+    lines.push(`  org      = "${state.org.name}"`);
+    lines.push(`  vdc      = data.vcd_org_vdc.${vdcSlug}_for_vapp.name`);
+    lines.push(`  name     = "${state.vapp.name}"`);
+    lines.push(`  power_on = ${state.vapp.power_on}`);
+    if (state.vapp.description) {
+      lines.push(`  description = "${state.vapp.description}"`);
+    }
+    lines.push(`}`);
+  }
+
+  // --- vApp VM ---
+  if (state.vm.name && state.vm.catalog_name && state.vm.template_name && state.vapp.name) {
+    const catSlug = slug(state.vm.catalog_name);
+    const tplSlug = slug(state.vm.template_name);
+
+    lines.push(``);
+    lines.push(`data "vcd_catalog" "${catSlug}" {`);
+    lines.push(`  org  = "${state.org.name}"`);
+    lines.push(`  name = "${state.vm.catalog_name}"`);
+    lines.push(`}`);
+    lines.push(``);
+    lines.push(`data "vcd_catalog_vapp_template" "${tplSlug}" {`);
+    lines.push(`  org        = "${state.org.name}"`);
+    lines.push(`  catalog_id = data.vcd_catalog.${catSlug}.id`);
+    lines.push(`  name       = "${state.vm.template_name}"`);
+    lines.push(`}`);
+    lines.push(``);
+    lines.push(`resource "vcd_vapp_vm" "${slug(state.vm.name)}" {`);
+    lines.push(`  org              = "${state.org.name}"`);
+    lines.push(`  vdc              = "${state.vdc.name}"`);
+    lines.push(`  vapp_name        = "${state.vapp.name}"`);
+    lines.push(`  name             = "${state.vm.name}"`);
+    lines.push(`  computer_name    = "${state.vm.computer_name}"`);
+    lines.push(`  vapp_template_id = data.vcd_catalog_vapp_template.${tplSlug}.id`);
+    lines.push(`  memory           = ${state.vm.memory}`);
+    lines.push(`  cpus             = ${state.vm.cpus}`);
+    lines.push(`  cpu_cores        = ${state.vm.cpu_cores}`);
+    lines.push(`  power_on         = ${state.vm.power_on}`);
+    if (state.vm.storage_profile) {
+      lines.push(`  storage_profile  = "${state.vm.storage_profile}"`);
+    }
+    if (state.vm.description) {
+      lines.push(`  description      = "${state.vm.description}"`);
+    }
+    if (state.vm.network?.name) {
+      lines.push(``);
+      lines.push(`  network {`);
+      lines.push(`    type               = "${state.vm.network.type}"`);
+      lines.push(`    name               = "${state.vm.network.name}"`);
+      lines.push(`    ip_allocation_mode = "${state.vm.network.ip_allocation_mode}"`);
+      if (state.vm.network.ip) {
+        lines.push(`    ip                 = "${state.vm.network.ip}"`);
+      }
+      lines.push(`  }`);
+    }
+    lines.push(`}`);
+  }
+
   return lines.join("\n");
 }
 
@@ -233,7 +304,7 @@ export function HclPreview() {
 
   const hcl = useMemo(
     () => generateHcl(state),
-    [state.provider, state.backend, state.org, state.vdc, state.edge, state.network]
+    [state.provider, state.backend, state.org, state.vdc, state.edge, state.network, state.vapp, state.vm]
   );
 
   const handleCopy = async () => {
