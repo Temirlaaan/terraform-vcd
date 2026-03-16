@@ -446,7 +446,7 @@ function ActionBar() {
 
     planMutation.mutate(config, {
       onSuccess: (data) => {
-        setOperation(data.operation_id, "planned");
+        setOperation(data.operation_id, "planning");
         openTerminal();
       },
       onError: (err) => {
@@ -471,7 +471,8 @@ function ActionBar() {
 
     applyMutation.mutate(currentOperationId, {
       onSuccess: (data) => {
-        setOperation(data.operation_id, "applied");
+        setOperation(data.operation_id, "applying");
+        openTerminal();
       },
       onError: (err) => {
         const message =

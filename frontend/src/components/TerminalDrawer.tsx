@@ -57,6 +57,26 @@ export function TerminalDrawer() {
     ws.onmessage = (event: MessageEvent) => {
       const line = String(event.data);
       setLogs((prev) => [...prev, line]);
+
+      if (line.startsWith("__EXIT:")) {
+        const code = parseInt(line.slice("__EXIT:".length), 10);
+        const { planStatus: status, currentOperationId: opId } = useConfigStore.getState();
+        const setOp = useConfigStore.getState().setOperation;
+
+        if (status === "planning") {
+          setOp(
+            opId,
+            code === 0 ? "planned" : "error",
+            code !== 0 ? "Terraform plan failed" : null,
+          );
+        } else if (status === "applying") {
+          setOp(
+            opId,
+            code === 0 ? "applied" : "error",
+            code !== 0 ? "Terraform apply failed" : null,
+          );
+        }
+      }
     };
 
     ws.onclose = () => {

@@ -1,8 +1,10 @@
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,9 +12,9 @@ from app.auth import AuthenticatedUser, require_roles
 from app.config import settings
 from app.core.hcl_generator import HCLGenerator
 from app.core.locking import acquire_org_lock, get_org_lock_holder, release_org_lock
-from app.core.tf_runner import TerraformRunner
+from app.core.tf_runner import TerraformRunner, log_channel
 from app.core.tf_workspace import TerraformWorkspace
-from app.database import get_db
+from app.database import async_session, get_db
 from app.models.operation import Operation, OperationStatus, OperationType
 from app.schemas.terraform import (
     TerraformApplyRequest,
@@ -40,6 +42,156 @@ def _extract_org_name(config: TerraformConfig) -> str:
     return config.org.name
 
 
+# ------------------------------------------------------------------
+#  Background task runners
+# ------------------------------------------------------------------
+
+async def _run_plan_task(
+    operation_id: uuid.UUID,
+    org_name: str,
+    workspace: TerraformWorkspace,
+) -> None:
+    """Background: terraform init + plan, update DB, release lock."""
+    async with async_session() as db:
+        try:
+            result = await db.execute(
+                select(Operation).where(Operation.id == operation_id)
+            )
+            operation = result.scalar_one()
+
+            runner = TerraformRunner(workspace.work_dir, operation_id=str(operation_id))
+
+            # --- terraform init ---
+            init_result = await runner.init()
+            if not init_result.success:
+                logger.error(
+                    "terraform init failed for operation %s: %s",
+                    operation_id, init_result.stderr,
+                )
+                operation.status = OperationStatus.FAILED
+                operation.error_message = init_result.stderr
+                operation.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+                return
+
+            # --- terraform plan ---
+            plan_result = await runner.plan()
+            operation.plan_output = plan_result.stdout
+            if plan_result.success:
+                operation.status = OperationStatus.SUCCESS
+                logger.info("Plan succeeded for operation %s", operation_id)
+            else:
+                operation.status = OperationStatus.FAILED
+                operation.error_message = plan_result.stderr
+                logger.error(
+                    "Plan failed for operation %s: %s",
+                    operation_id, plan_result.stderr,
+                )
+            operation.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+
+        except Exception as exc:
+            logger.exception("Unexpected error during plan %s", operation_id)
+            try:
+                result = await db.execute(
+                    select(Operation).where(Operation.id == operation_id)
+                )
+                operation = result.scalar_one()
+                operation.status = OperationStatus.FAILED
+                operation.error_message = str(exc)
+                operation.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+            except Exception:
+                logger.exception("Failed to update operation %s after error", operation_id)
+
+            # Publish error to Redis so WebSocket/frontend sees it
+            redis = None
+            try:
+                redis = Redis.from_url(settings.redis_url, decode_responses=True)
+                channel = log_channel(str(operation_id))
+                await redis.publish(channel, f"[stderr] Background task error: {type(exc).__name__}")
+                await redis.publish(channel, "__EXIT:1")
+            except Exception:
+                logger.warning("Failed to publish error to Redis for %s", operation_id)
+            finally:
+                if redis:
+                    await redis.aclose()
+        finally:
+            await release_org_lock(org_name, str(operation_id))
+
+
+async def _run_apply_task(
+    apply_id: uuid.UUID,
+    org_name: str,
+    workspace: TerraformWorkspace,
+) -> None:
+    """Background: terraform apply, update DB, release lock, cleanup."""
+    async with async_session() as db:
+        try:
+            result = await db.execute(
+                select(Operation).where(Operation.id == apply_id)
+            )
+            operation = result.scalar_one()
+
+            runner = TerraformRunner(workspace.work_dir, operation_id=str(apply_id))
+            apply_result = await runner.apply()
+
+            operation.plan_output = apply_result.stdout
+            if apply_result.success:
+                operation.status = OperationStatus.SUCCESS
+                logger.info("Apply succeeded for operation %s", apply_id)
+            else:
+                operation.status = OperationStatus.FAILED
+                operation.error_message = apply_result.stderr
+                logger.error(
+                    "Apply failed for operation %s: %s",
+                    apply_id, apply_result.stderr,
+                )
+            operation.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+
+        except Exception as exc:
+            logger.exception("Unexpected error during apply %s", apply_id)
+            try:
+                result = await db.execute(
+                    select(Operation).where(Operation.id == apply_id)
+                )
+                operation = result.scalar_one()
+                operation.status = OperationStatus.FAILED
+                operation.error_message = str(exc)
+                operation.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+            except Exception:
+                logger.exception("Failed to update operation %s after error", apply_id)
+
+            # Publish error to Redis so WebSocket/frontend sees it
+            redis = None
+            try:
+                redis = Redis.from_url(settings.redis_url, decode_responses=True)
+                channel = log_channel(str(apply_id))
+                await redis.publish(channel, f"[stderr] Background task error: {type(exc).__name__}")
+                await redis.publish(channel, "__EXIT:1")
+            except Exception:
+                logger.warning("Failed to publish error to Redis for %s", apply_id)
+            finally:
+                if redis:
+                    await redis.aclose()
+        finally:
+            await release_org_lock(org_name, str(apply_id))
+            if settings.workspace_cleanup_enabled:
+                try:
+                    workspace.cleanup()
+                    logger.info("Cleaned up workspace for apply %s", apply_id)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to cleanup workspace for apply %s: %s", apply_id, exc,
+                    )
+
+
+# ------------------------------------------------------------------
+#  Endpoints
+# ------------------------------------------------------------------
+
 @router.post("/generate", response_model=TerraformGenerateResponse)
 async def generate_hcl(
     body: TerraformGenerateRequest,
@@ -61,9 +213,10 @@ async def plan(
     db: AsyncSession = Depends(get_db),
     user: AuthenticatedUser = Depends(require_roles("tf-admin", "tf-operator")),
 ):
-    """Generate HCL, run ``terraform init`` + ``terraform plan``.
+    """Generate HCL, launch ``terraform init`` + ``terraform plan`` in background.
 
-    Returns the ``operation_id`` immediately after the plan completes.
+    Returns the ``operation_id`` immediately so the frontend can connect
+    a WebSocket before terraform output begins streaming.
     A Redis lock prevents concurrent operations on the same Org.
     """
     org_name = _extract_org_name(body.config)
@@ -99,60 +252,25 @@ async def plan(
     db.add(operation)
     await db.commit()
 
+    # --- Prepare workspace ---
     workspace = TerraformWorkspace(org_name, operation_id)
     try:
-        # --- Write HCL to workspace ---
         workspace.create(body.config.to_template_dict())
-
-        # --- terraform init ---
-        runner = TerraformRunner(workspace.work_dir, operation_id=str(operation_id))
-        init_result = await runner.init()
-        if not init_result.success:
-            logger.error("terraform init failed for operation %s: %s", operation_id, init_result.stderr)
-            operation.status = OperationStatus.FAILED
-            operation.error_message = init_result.stderr
-            operation.completed_at = datetime.now(timezone.utc)
-            await db.commit()
-            raise HTTPException(
-                status_code=500,
-                detail=f"Terraform init failed for operation {operation_id}. See logs for details.",
-            )
-
-        # --- terraform plan ---
-        plan_result = await runner.plan()
-        operation.plan_output = plan_result.stdout
-        if plan_result.success:
-            operation.status = OperationStatus.SUCCESS
-            logger.info("Plan succeeded for operation %s", operation_id)
-        else:
-            operation.status = OperationStatus.FAILED
-            operation.error_message = plan_result.stderr
-            logger.error("Plan failed for operation %s: %s", operation_id, plan_result.stderr)
-        operation.completed_at = datetime.now(timezone.utc)
-        await db.commit()
-
-        if not plan_result.success:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Terraform plan failed for operation {operation_id}. See logs for details.",
-            )
-
-        return TerraformPlanResponse(operation_id=operation_id)
-
-    except HTTPException:
-        raise
     except Exception as exc:
-        logger.exception("Unexpected error during plan %s", operation_id)
+        logger.exception("Failed to create workspace for plan %s", operation_id)
         operation.status = OperationStatus.FAILED
         operation.error_message = str(exc)
         operation.completed_at = datetime.now(timezone.utc)
         await db.commit()
+        await release_org_lock(org_name, str(operation_id))
         raise HTTPException(
             status_code=500,
-            detail=f"Unexpected error during plan {operation_id}. See server logs.",
+            detail=f"Failed to create workspace for operation {operation_id}.",
         )
-    finally:
-        await release_org_lock(org_name, str(operation_id))
+
+    # --- Launch background task and return immediately ---
+    asyncio.create_task(_run_plan_task(operation_id, org_name, workspace))
+    return TerraformPlanResponse(operation_id=operation_id)
 
 
 @router.post("/apply", response_model=TerraformPlanResponse)
@@ -161,10 +279,10 @@ async def apply(
     db: AsyncSession = Depends(get_db),
     user: AuthenticatedUser = Depends(require_roles("tf-admin", "tf-operator")),
 ):
-    """Execute ``terraform apply`` for a previously successful plan.
+    """Launch ``terraform apply`` in background for a previously successful plan.
 
-    Looks up the plan operation by ID, finds its workspace, acquires
-    an org lock, then runs ``terraform apply plan.bin``.
+    Returns the ``operation_id`` immediately so the frontend can connect
+    a WebSocket before terraform output begins streaming.
     """
     # --- Fetch the plan operation ---
     result = await db.execute(
@@ -211,47 +329,7 @@ async def apply(
 
     # Reuse the plan workspace (it still has plan.bin)
     workspace = TerraformWorkspace(org_name, body.operation_id)
-    try:
-        runner = TerraformRunner(workspace.work_dir, operation_id=str(apply_id))
-        apply_result = await runner.apply()
 
-        operation.plan_output = apply_result.stdout
-        if apply_result.success:
-            operation.status = OperationStatus.SUCCESS
-            logger.info("Apply succeeded for operation %s", apply_id)
-        else:
-            operation.status = OperationStatus.FAILED
-            operation.error_message = apply_result.stderr
-            logger.error("Apply failed for operation %s: %s", apply_id, apply_result.stderr)
-        operation.completed_at = datetime.now(timezone.utc)
-        await db.commit()
-
-        if not apply_result.success:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Terraform apply failed for operation {apply_id}. See logs for details.",
-            )
-
-        return TerraformPlanResponse(operation_id=apply_id)
-
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Unexpected error during apply %s", apply_id)
-        operation.status = OperationStatus.FAILED
-        operation.error_message = str(exc)
-        operation.completed_at = datetime.now(timezone.utc)
-        await db.commit()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unexpected error during apply {apply_id}. See server logs.",
-        )
-    finally:
-        await release_org_lock(org_name, str(apply_id))
-        # Cleanup workspace after apply completes
-        if settings.workspace_cleanup_enabled:
-            try:
-                workspace.cleanup()
-                logger.info("Cleaned up workspace for apply %s", apply_id)
-            except Exception as exc:
-                logger.warning("Failed to cleanup workspace for apply %s: %s", apply_id, exc)
+    # --- Launch background task and return immediately ---
+    asyncio.create_task(_run_apply_task(apply_id, org_name, workspace))
+    return TerraformPlanResponse(operation_id=apply_id)
