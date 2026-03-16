@@ -60,7 +60,7 @@ class TerraformRunner:
         }
 
         # VCD credentials
-        env["TF_VAR_vcd_url"] = settings.vcd_url
+        env["TF_VAR_vcd_url"] = settings.vcd_url.rstrip("/") + "/api"
         env["TF_VAR_vcd_user"] = settings.vcd_user
         env["TF_VAR_vcd_password"] = settings.vcd_password
 

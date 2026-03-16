@@ -24,7 +24,7 @@ provider "vcd" {
   user                 = var.vcd_user
   password             = var.vcd_password
   org                  = "{{ provider.org | default('System') }}"
-  allow_unverified_ssl = {{ provider.allow_unverified_ssl | default('true') }}
+  allow_unverified_ssl = {{ provider.allow_unverified_ssl | default('true') | string | lower }}
 }
 
 variable "vcd_url" {
