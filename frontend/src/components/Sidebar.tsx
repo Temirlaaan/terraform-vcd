@@ -18,7 +18,6 @@ import { useConfigStore } from "@/store/useConfigStore";
 import { FormInput, FormNumberInput, FormCheckbox, FormSelect } from "./shared";
 import type { SelectOption } from "./shared";
 import {
-  useOrganizations,
   useProviderVdcs,
   useStorageProfiles,
   useNetworkPools,
@@ -95,24 +94,6 @@ function OrgSection() {
   const org = useConfigStore((s) => s.org);
   const setOrg = useConfigStore((s) => s.setOrg);
 
-  const { data: orgs, isLoading: orgsLoading } = useOrganizations();
-
-  const orgOptions = useMemo<SelectOption[]>(
-    () =>
-      (orgs ?? [])
-        .filter((o) => o.is_enabled)
-        .map((o) => ({ label: o.display_name || o.name, value: o.name })),
-    [orgs]
-  );
-
-  const handleOrgSelect = (name: string) => {
-    const selected = orgs?.find((o) => o.name === name);
-    setOrg({
-      name,
-      full_name: selected?.display_name ?? name,
-    });
-  };
-
   return (
     <Section
       title="Organization"
@@ -120,23 +101,12 @@ function OrgSection() {
       defaultOpen
       badge={org.name ? "1" : undefined}
     >
-      {!orgsLoading && orgOptions.length === 0 ? (
-        <FormInput
-          label="Organization"
-          value={org.name}
-          onChange={(v) => setOrg({ name: v })}
-          placeholder="Enter organization name..."
-        />
-      ) : (
-        <FormSelect
-          label="Organization"
-          value={org.name}
-          onChange={handleOrgSelect}
-          options={orgOptions}
-          placeholder="Select organization..."
-          isLoading={orgsLoading}
-        />
-      )}
+      <FormInput
+        label="Organization Name"
+        value={org.name}
+        onChange={(v) => setOrg({ name: v })}
+        placeholder="Enter new organization name..."
+      />
       <FormInput
         label="Full Name"
         value={org.full_name}
@@ -382,6 +352,13 @@ function VdcSection() {
             label="Include VM Memory Overhead"
             checked={vdc.include_vm_memory_overhead}
             onChange={(v) => setVdc({ include_vm_memory_overhead: v })}
+          />
+          <FormNumberInput
+            label="Memory Guaranteed (%)"
+            value={vdc.memory_guaranteed ?? 20}
+            onChange={(v) => setVdc({ memory_guaranteed: Math.min(100, Math.max(0, v)) })}
+            min={0}
+            step={1}
           />
         </>
       )}

@@ -30,6 +30,7 @@ export interface VdcConfig {
   enable_fast_provisioning: boolean;
   elasticity: boolean;
   include_vm_memory_overhead: boolean;
+  memory_guaranteed?: number;
   delete_force: boolean;
   delete_recursive: boolean;
   description: string;

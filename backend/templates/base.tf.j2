@@ -4,6 +4,10 @@ terraform {
       source  = "vmware/vcd"
       version = "~> 3.12"
     }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.10.0"
+    }
   }
 
   backend "s3" {

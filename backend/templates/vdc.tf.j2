@@ -8,6 +8,9 @@ resource "vcd_org_vdc" "{{ vdc.name | slug }}" {
 
   elasticity                 = {{ vdc.elasticity | default(false) | lower }}
   include_vm_memory_overhead = {{ vdc.include_vm_memory_overhead | default(true) | lower }}
+{% if vdc.memory_guaranteed is defined %}
+  memory_guaranteed          = {{ vdc.memory_guaranteed }}
+{% endif %}
 
   compute_capacity {
     cpu {
@@ -38,4 +41,6 @@ resource "vcd_org_vdc" "{{ vdc.name | slug }}" {
 {% if vdc.description %}
   description              = "{{ vdc.description | hcl_escape }}"
 {% endif %}
+
+  depends_on = [time_sleep.wait_for_org]
 }

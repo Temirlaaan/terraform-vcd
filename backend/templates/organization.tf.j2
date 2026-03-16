@@ -16,3 +16,8 @@ resource "vcd_org" "{{ org.name | slug }}" {
   }
 {% endif %}
 }
+
+resource "time_sleep" "wait_for_org" {
+  depends_on      = [vcd_org.{{ org.name | slug }}]
+  create_duration = "30s"
+}

@@ -20,7 +20,7 @@ function generateHcl(state: {
   provider: { org: string; allow_unverified_ssl: boolean };
   backend: { bucket: string; endpoint: string; region: string };
   org: { name: string; full_name: string; description: string; is_enabled: boolean; delete_force: boolean; delete_recursive: boolean };
-  vdc: { name: string; provider_vdc_name: string; allocation_model: string; network_pool_name: string; cpu_allocated: number; cpu_limit: number; memory_allocated: number; memory_limit: number; storage_profiles: { name: string; limit: number; default: boolean; enabled: boolean }[]; enable_thin_provisioning: boolean; enable_fast_provisioning: boolean; elasticity: boolean; include_vm_memory_overhead: boolean; delete_force: boolean; delete_recursive: boolean; description: string };
+  vdc: { name: string; provider_vdc_name: string; allocation_model: string; network_pool_name: string; cpu_allocated: number; cpu_limit: number; memory_allocated: number; memory_limit: number; storage_profiles: { name: string; limit: number; default: boolean; enabled: boolean }[]; enable_thin_provisioning: boolean; enable_fast_provisioning: boolean; elasticity: boolean; include_vm_memory_overhead: boolean; memory_guaranteed?: number; delete_force: boolean; delete_recursive: boolean; description: string };
   edge: { name: string; external_network_name: string; subnet: { gateway: string; prefix_length: number; primary_ip: string; start_address?: string; end_address?: string }; dedicate_external_network: boolean; description?: string };
   network: { name: string; gateway: string; prefix_length: number; dns1?: string; dns2?: string; static_ip_pool?: { start_address: string; end_address: string }; description?: string };
   vapp: { name: string; description?: string; power_on: boolean };
@@ -34,6 +34,10 @@ function generateHcl(state: {
   lines.push(`    vcd = {`);
   lines.push(`      source  = "vmware/vcd"`);
   lines.push(`      version = "~> 3.12"`);
+  lines.push(`    }`);
+  lines.push(`    time = {`);
+  lines.push(`      source  = "hashicorp/time"`);
+  lines.push(`      version = "~> 0.10.0"`);
   lines.push(`    }`);
   lines.push(`  }`);
   lines.push(``);
@@ -71,6 +75,11 @@ function generateHcl(state: {
       lines.push(`  description      = "${state.org.description}"`);
     }
     lines.push(`}`);
+    lines.push(``);
+    lines.push(`resource "time_sleep" "wait_for_org" {`);
+    lines.push(`  depends_on      = [vcd_org.${slug(state.org.name)}]`);
+    lines.push(`  create_duration = "30s"`);
+    lines.push(`}`);
   }
 
   // --- VDC ---
@@ -87,6 +96,9 @@ function generateHcl(state: {
     lines.push(``);
     lines.push(`  elasticity                 = ${state.vdc.elasticity}`);
     lines.push(`  include_vm_memory_overhead = ${state.vdc.include_vm_memory_overhead}`);
+    if (state.vdc.memory_guaranteed != null) {
+      lines.push(`  memory_guaranteed          = ${state.vdc.memory_guaranteed}`);
+    }
     lines.push(``);
     lines.push(`  compute_capacity {`);
     lines.push(`    cpu {`);
@@ -118,6 +130,8 @@ function generateHcl(state: {
     if (state.vdc.description) {
       lines.push(`  description              = "${state.vdc.description}"`);
     }
+    lines.push(``);
+    lines.push(`  depends_on = [time_sleep.wait_for_org]`);
     lines.push(`}`);
   }
 

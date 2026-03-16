@@ -47,6 +47,7 @@ const defaultVdc: VdcConfig = {
   enable_fast_provisioning: false,
   elasticity: false,
   include_vm_memory_overhead: true,
+  memory_guaranteed: 20,
   delete_force: true,
   delete_recursive: true,
   description: "",

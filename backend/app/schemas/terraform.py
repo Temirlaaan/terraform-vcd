@@ -81,6 +81,7 @@ class VdcConfig(BaseModel):
     delete_recursive: bool = False
     elasticity: bool = False
     include_vm_memory_overhead: bool = True
+    memory_guaranteed: int | None = Field(default=None, ge=0, le=100)
     description: str | None = None
 
     @field_validator("name")
