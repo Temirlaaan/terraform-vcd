@@ -42,9 +42,11 @@ function generateHcl(state: {
   lines.push(`    key                         = "${slug(state.org.name || "default")}/terraform.tfstate"`);
   lines.push(`    region                      = "${state.backend.region}"`);
   lines.push(`    endpoint                    = "${state.backend.endpoint}"`);
-  lines.push(`    skip_credentials_validation = true`);
-  lines.push(`    skip_metadata_api_check     = true`);
-  lines.push(`    force_path_style            = true`);
+  lines.push(`    skip_credentials_validation  = true`);
+  lines.push(`    skip_metadata_api_check      = true`);
+  lines.push(`    skip_region_validation       = true`);
+  lines.push(`    skip_requesting_account_id   = true`);
+  lines.push(`    force_path_style             = true`);
   lines.push(`  }`);
   lines.push(`}`);
   lines.push(``);

@@ -250,28 +250,32 @@ function VdcSection() {
       </p>
       <div className="grid grid-cols-2 gap-2">
         <FormNumberInput
-          label="CPU Allocated (MHz)"
-          value={vdc.cpu_allocated}
-          onChange={(v) => setVdc({ cpu_allocated: v })}
+          label="CPU Allocated (GHz)"
+          value={Math.round((vdc.cpu_allocated / 1000) * 100) / 100}
+          onChange={(v) => setVdc({ cpu_allocated: Math.round(v * 1000) })}
           min={0}
+          step={0.1}
         />
         <FormNumberInput
-          label="CPU Limit (MHz)"
-          value={vdc.cpu_limit}
-          onChange={(v) => setVdc({ cpu_limit: v })}
+          label="CPU Limit (GHz)"
+          value={Math.round((vdc.cpu_limit / 1000) * 100) / 100}
+          onChange={(v) => setVdc({ cpu_limit: Math.round(v * 1000) })}
           min={0}
+          step={0.1}
         />
         <FormNumberInput
-          label="Memory Allocated (MB)"
-          value={vdc.memory_allocated}
-          onChange={(v) => setVdc({ memory_allocated: v })}
+          label="Memory Allocated (GB)"
+          value={Math.round((vdc.memory_allocated / 1024) * 100) / 100}
+          onChange={(v) => setVdc({ memory_allocated: Math.round(v * 1024) })}
           min={0}
+          step={0.5}
         />
         <FormNumberInput
-          label="Memory Limit (MB)"
-          value={vdc.memory_limit}
-          onChange={(v) => setVdc({ memory_limit: v })}
+          label="Memory Limit (GB)"
+          value={Math.round((vdc.memory_limit / 1024) * 100) / 100}
+          onChange={(v) => setVdc({ memory_limit: Math.round(v * 1024) })}
           min={0}
+          step={0.5}
         />
       </div>
 
@@ -336,10 +340,11 @@ function VdcSection() {
             />
           )}
           <FormNumberInput
-            label="Limit (MB)"
-            value={sp.limit}
-            onChange={(v) => updateStorageProfile(i, { limit: v })}
+            label="Limit (GB)"
+            value={Math.round((sp.limit / 1024) * 100) / 100}
+            onChange={(v) => updateStorageProfile(i, { limit: Math.round(v * 1024) })}
             min={0}
+            step={1}
           />
           <div className="flex gap-4">
             <FormCheckbox

@@ -64,6 +64,12 @@ class TerraformRunner:
         env["TF_VAR_vcd_user"] = settings.vcd_user
         env["TF_VAR_vcd_password"] = settings.vcd_password
 
+        # S3/MinIO backend credentials
+        for key in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_DEFAULT_REGION"):
+            val = os.environ.get(key)
+            if val:
+                env[key] = val
+
         # Disable interactive prompts and colour codes for machine-readable output
         env["TF_INPUT"] = "false"
         env["TF_IN_AUTOMATION"] = "1"

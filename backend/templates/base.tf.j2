@@ -11,10 +11,11 @@ terraform {
     key                         = "{{ backend.key | default((org.name | slug ~ '/terraform.tfstate') if org is defined and org.name is defined else 'default/terraform.tfstate') | hcl_escape }}"
     region                      = "{{ backend.region | default('us-east-1') | hcl_escape }}"
     endpoint                    = "{{ backend.endpoint | default('http://minio:9000') | hcl_escape }}"
-    skip_credentials_validation = true
-    skip_metadata_api_check     = true
-    skip_region_validation      = true
-    force_path_style            = true
+    skip_credentials_validation  = true
+    skip_metadata_api_check      = true
+    skip_region_validation       = true
+    skip_requesting_account_id   = true
+    force_path_style             = true
   }
 }
 

@@ -23,7 +23,7 @@ export function FormNumberInput({
       <input
         type="number"
         value={value}
-        onChange={(e) => onChange(parseInt(e.target.value, 10) || 0)}
+        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
         placeholder={placeholder}
         disabled={disabled}
         min={min}
