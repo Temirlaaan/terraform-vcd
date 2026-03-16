@@ -15,7 +15,7 @@ import {
 import { useState, useMemo } from "react";
 import { cn } from "@/utils/cn";
 import { useConfigStore } from "@/store/useConfigStore";
-import { FormInput, FormSelect } from "./shared";
+import { FormInput, FormNumberInput, FormCheckbox, FormSelect } from "./shared";
 import type { SelectOption } from "./shared";
 import {
   useOrganizations,
@@ -119,14 +119,23 @@ function OrgSection() {
       defaultOpen
       badge={org.name ? "1" : undefined}
     >
-      <FormSelect
-        label="Organization"
-        value={org.name}
-        onChange={handleOrgSelect}
-        options={orgOptions}
-        placeholder="Select organization..."
-        isLoading={orgsLoading}
-      />
+      {!orgsLoading && orgOptions.length === 0 ? (
+        <FormInput
+          label="Organization"
+          value={org.name}
+          onChange={(v) => setOrg({ name: v })}
+          placeholder="Enter organization name..."
+        />
+      ) : (
+        <FormSelect
+          label="Organization"
+          value={org.name}
+          onChange={handleOrgSelect}
+          options={orgOptions}
+          placeholder="Select organization..."
+          isLoading={orgsLoading}
+        />
+      )}
       <FormInput
         label="Full Name"
         value={org.full_name}
@@ -150,9 +159,12 @@ function OrgSection() {
 function VdcSection() {
   const vdc = useConfigStore((s) => s.vdc);
   const setVdc = useConfigStore((s) => s.setVdc);
+  const updateStorageProfile = useConfigStore((s) => s.updateStorageProfile);
+  const addStorageProfile = useConfigStore((s) => s.addStorageProfile);
+  const removeStorageProfile = useConfigStore((s) => s.removeStorageProfile);
 
   const { data: pvdcs, isLoading: pvdcsLoading } = useProviderVdcs();
-  const { data: storageProfiles, isLoading: spLoading } = useStorageProfiles(
+  const { data: storageProfiles } = useStorageProfiles(
     vdc.provider_vdc_name || undefined
   );
 
@@ -171,11 +183,16 @@ function VdcSection() {
     { label: "Flex", value: "Flex" },
   ];
 
-  // Show available storage profiles as hint text
-  const spHint =
-    storageProfiles && storageProfiles.length > 0
-      ? `${storageProfiles.length} profiles available`
-      : undefined;
+  const spOptions = useMemo<SelectOption[]>(
+    () =>
+      (storageProfiles ?? []).map((sp) => ({
+        label: sp.name,
+        value: sp.name,
+      })),
+    [storageProfiles]
+  );
+
+  const isFlex = vdc.allocation_model === "Flex";
 
   return (
     <Section
@@ -189,14 +206,23 @@ function VdcSection() {
         onChange={(v) => setVdc({ name: v })}
         placeholder="e.g. prod-vdc-01"
       />
-      <FormSelect
-        label="Provider VDC"
-        value={vdc.provider_vdc_name}
-        onChange={(v) => setVdc({ provider_vdc_name: v })}
-        options={pvdcOptions}
-        placeholder="Select provider VDC..."
-        isLoading={pvdcsLoading}
-      />
+      {!pvdcsLoading && pvdcOptions.length === 0 ? (
+        <FormInput
+          label="Provider VDC"
+          value={vdc.provider_vdc_name}
+          onChange={(v) => setVdc({ provider_vdc_name: v })}
+          placeholder="Enter provider VDC name..."
+        />
+      ) : (
+        <FormSelect
+          label="Provider VDC"
+          value={vdc.provider_vdc_name}
+          onChange={(v) => setVdc({ provider_vdc_name: v })}
+          options={pvdcOptions}
+          placeholder="Select provider VDC..."
+          isLoading={pvdcsLoading}
+        />
+      )}
       <FormSelect
         label="Allocation Model"
         value={vdc.allocation_model}
@@ -204,12 +230,158 @@ function VdcSection() {
         options={allocationOptions}
         placeholder="Select allocation model..."
       />
-      {spHint && (
-        <p className="text-[11px] text-slate-500">
-          <span className="text-blue-400">{spHint}</span>
-          {spLoading && " (loading...)"}
-        </p>
+
+      {/* Compute */}
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 pt-2">
+        Compute
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <FormNumberInput
+          label="CPU Allocated (MHz)"
+          value={vdc.cpu_allocated}
+          onChange={(v) => setVdc({ cpu_allocated: v })}
+          min={0}
+        />
+        <FormNumberInput
+          label="CPU Limit (MHz)"
+          value={vdc.cpu_limit}
+          onChange={(v) => setVdc({ cpu_limit: v })}
+          min={0}
+        />
+        <FormNumberInput
+          label="Memory Allocated (MB)"
+          value={vdc.memory_allocated}
+          onChange={(v) => setVdc({ memory_allocated: v })}
+          min={0}
+        />
+        <FormNumberInput
+          label="Memory Limit (MB)"
+          value={vdc.memory_limit}
+          onChange={(v) => setVdc({ memory_limit: v })}
+          min={0}
+        />
+      </div>
+
+      {/* Network */}
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 pt-2">
+        Network
+      </p>
+      <FormInput
+        label="Network Pool Name"
+        value={vdc.network_pool_name}
+        onChange={(v) => setVdc({ network_pool_name: v })}
+        placeholder="e.g. ALM-GENEVE-LAG"
+      />
+
+      {/* Storage Profiles */}
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 pt-2">
+        Storage Profiles
+      </p>
+      {vdc.storage_profiles.map((sp, i) => (
+        <div
+          key={i}
+          className="rounded-md border border-slate-700/50 bg-slate-800/30 p-2 space-y-2"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-medium text-slate-500">
+              Profile {i + 1}
+            </span>
+            {vdc.storage_profiles.length > 1 && (
+              <button
+                onClick={() => removeStorageProfile(i)}
+                className="text-[10px] text-rose-400 hover:text-rose-300"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+          {spOptions.length > 0 ? (
+            <FormSelect
+              label="Name"
+              value={sp.name}
+              onChange={(v) => updateStorageProfile(i, { name: v })}
+              options={spOptions}
+              placeholder="Select storage profile..."
+            />
+          ) : (
+            <FormInput
+              label="Name"
+              value={sp.name}
+              onChange={(v) => updateStorageProfile(i, { name: v })}
+              placeholder="e.g. alm-fas8300-ssd-01"
+            />
+          )}
+          <FormNumberInput
+            label="Limit (MB)"
+            value={sp.limit}
+            onChange={(v) => updateStorageProfile(i, { limit: v })}
+            min={0}
+          />
+          <div className="flex gap-4">
+            <FormCheckbox
+              label="Default"
+              checked={sp.default}
+              onChange={(v) => updateStorageProfile(i, { default: v })}
+            />
+            <FormCheckbox
+              label="Enabled"
+              checked={sp.enabled}
+              onChange={(v) => updateStorageProfile(i, { enabled: v })}
+            />
+          </div>
+        </div>
+      ))}
+      <button
+        onClick={addStorageProfile}
+        className="w-full rounded-md border border-dashed border-slate-700 py-1.5 text-[11px] text-slate-500 hover:text-slate-300 hover:border-slate-500 transition-colors"
+      >
+        + Add Storage Profile
+      </button>
+
+      {/* Flex Options */}
+      {isFlex && (
+        <>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 pt-2">
+            Flex Options
+          </p>
+          <FormCheckbox
+            label="Elasticity"
+            checked={vdc.elasticity}
+            onChange={(v) => setVdc({ elasticity: v })}
+          />
+          <FormCheckbox
+            label="Include VM Memory Overhead"
+            checked={vdc.include_vm_memory_overhead}
+            onChange={(v) => setVdc({ include_vm_memory_overhead: v })}
+          />
+        </>
       )}
+
+      {/* Options */}
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 pt-2">
+        Options
+      </p>
+      <FormCheckbox
+        label="Enable Thin Provisioning"
+        checked={vdc.enable_thin_provisioning}
+        onChange={(v) => setVdc({ enable_thin_provisioning: v })}
+      />
+      <FormCheckbox
+        label="Enable Fast Provisioning"
+        checked={vdc.enable_fast_provisioning}
+        onChange={(v) => setVdc({ enable_fast_provisioning: v })}
+      />
+      <FormCheckbox
+        label="Delete Force"
+        checked={vdc.delete_force}
+        onChange={(v) => setVdc({ delete_force: v })}
+      />
+      <FormCheckbox
+        label="Delete Recursive"
+        checked={vdc.delete_recursive}
+        onChange={(v) => setVdc({ delete_recursive: v })}
+      />
+
       <FormInput
         label="Description"
         value={vdc.description}
@@ -250,7 +422,19 @@ function ActionBar() {
   const canApply = planStatus === "planned" && currentOperationId !== null && !applyMutation.isPending;
 
   const handlePlan = () => {
-    const config = { provider, backend, org, vdc, edge, network, vapp, vm };
+    const config: Record<string, unknown> = { provider, backend };
+    if (org.name) config.org = org;
+    if (vdc.name && vdc.provider_vdc_name) {
+      const filteredVdc = {
+        ...vdc,
+        storage_profiles: vdc.storage_profiles.filter((sp) => sp.name),
+      };
+      config.vdc = filteredVdc;
+    }
+    if (edge.name) config.edge = edge;
+    if (network.name) config.network = network;
+    if (vapp.name) config.vapp = vapp;
+    if (vm.name && vm.catalog_name && vm.template_name) config.vm = vm;
     setOperation(null, "planning");
     openTerminal();
 
@@ -260,9 +444,15 @@ function ActionBar() {
         openTerminal();
       },
       onError: (err) => {
-        const message =
-          (err as { response?: { data?: { detail?: string } } }).response?.data?.detail ??
-          (err as Error).message;
+        const resp = (err as { response?: { data?: { detail?: unknown } } }).response?.data;
+        let message: string;
+        if (resp?.detail) {
+          message = typeof resp.detail === "string"
+            ? resp.detail
+            : JSON.stringify(resp.detail);
+        } else {
+          message = (err as Error).message;
+        }
         setOperation(null, "error", message);
       },
     });

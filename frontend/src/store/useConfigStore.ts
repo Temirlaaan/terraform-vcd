@@ -45,6 +45,10 @@ const defaultVdc: VdcConfig = {
   storage_profiles: [{ ...defaultStorageProfile }],
   enable_thin_provisioning: true,
   enable_fast_provisioning: false,
+  elasticity: false,
+  include_vm_memory_overhead: true,
+  delete_force: true,
+  delete_recursive: true,
   description: "",
 };
 

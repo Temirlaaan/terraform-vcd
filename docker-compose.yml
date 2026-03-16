@@ -70,7 +70,7 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-tf_user}:${DB_PASSWORD:-password}@postgres:5432/${DB_NAME:-terraform_dashboard}
       - REDIS_URL=redis://redis:6379/0
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://10.121.245.146:5174}
       - VERIFY_SSL=${VERIFY_SSL:-true}
       - VCD_URL=${VCD_URL}
       - VCD_API_TOKEN=${VCD_API_TOKEN}
@@ -117,7 +117,7 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=http://10.121.245.146:8000
       - VITE_AUTH_DISABLED=${AUTH_DISABLED:-false}
     depends_on:
       - backend

@@ -20,7 +20,7 @@ function generateHcl(state: {
   provider: { org: string; allow_unverified_ssl: boolean };
   backend: { bucket: string; endpoint: string; region: string };
   org: { name: string; full_name: string; description: string; is_enabled: boolean; delete_force: boolean; delete_recursive: boolean };
-  vdc: { name: string; provider_vdc_name: string; allocation_model: string; description: string };
+  vdc: { name: string; provider_vdc_name: string; allocation_model: string; network_pool_name: string; cpu_allocated: number; cpu_limit: number; memory_allocated: number; memory_limit: number; storage_profiles: { name: string; limit: number; default: boolean; enabled: boolean }[]; enable_thin_provisioning: boolean; enable_fast_provisioning: boolean; elasticity: boolean; include_vm_memory_overhead: boolean; delete_force: boolean; delete_recursive: boolean; description: string };
   edge: { name: string; external_network_name: string; subnet: { gateway: string; prefix_length: number; primary_ip: string; start_address?: string; end_address?: string }; dedicate_external_network: boolean; description?: string };
   network: { name: string; gateway: string; prefix_length: number; dns1?: string; dns2?: string; static_ip_pool?: { start_address: string; end_address: string }; description?: string };
   vapp: { name: string; description?: string; power_on: boolean };
@@ -76,11 +76,45 @@ function generateHcl(state: {
     lines.push(``);
     lines.push(`resource "vcd_org_vdc" "${slug(state.vdc.name)}" {`);
     lines.push(`  name              = "${state.vdc.name}"`);
-    lines.push(`  org               = "${state.org.name}"`);
-    lines.push(`  provider_vdc_name = "${state.vdc.provider_vdc_name}"`);
+    lines.push(`  org               = vcd_org.${slug(state.org.name)}.name`);
     lines.push(`  allocation_model  = "${state.vdc.allocation_model}"`);
+    if (state.vdc.network_pool_name) {
+      lines.push(`  network_pool_name = "${state.vdc.network_pool_name}"`);
+    }
+    lines.push(`  provider_vdc_name = "${state.vdc.provider_vdc_name}"`);
+    lines.push(``);
+    lines.push(`  elasticity                 = ${state.vdc.elasticity}`);
+    lines.push(`  include_vm_memory_overhead = ${state.vdc.include_vm_memory_overhead}`);
+    lines.push(``);
+    lines.push(`  compute_capacity {`);
+    lines.push(`    cpu {`);
+    lines.push(`      allocated = ${state.vdc.cpu_allocated}`);
+    lines.push(`      limit     = ${state.vdc.cpu_limit}`);
+    lines.push(`    }`);
+    lines.push(``);
+    lines.push(`    memory {`);
+    lines.push(`      allocated = ${state.vdc.memory_allocated}`);
+    lines.push(`      limit     = ${state.vdc.memory_limit}`);
+    lines.push(`    }`);
+    lines.push(`  }`);
+    const filledProfiles = state.vdc.storage_profiles.filter((sp) => sp.name);
+    for (const sp of filledProfiles) {
+      lines.push(``);
+      lines.push(`  storage_profile {`);
+      lines.push(`    name    = "${sp.name}"`);
+      lines.push(`    limit   = ${sp.limit}`);
+      lines.push(`    default = ${sp.default}`);
+      lines.push(`    enabled = ${sp.enabled}`);
+      lines.push(`  }`);
+    }
+    lines.push(``);
+    lines.push(`  enabled                  = true`);
+    lines.push(`  enable_thin_provisioning = ${state.vdc.enable_thin_provisioning}`);
+    lines.push(`  enable_fast_provisioning = ${state.vdc.enable_fast_provisioning}`);
+    lines.push(`  delete_force             = ${state.vdc.delete_force}`);
+    lines.push(`  delete_recursive         = ${state.vdc.delete_recursive}`);
     if (state.vdc.description) {
-      lines.push(`  description       = "${state.vdc.description}"`);
+      lines.push(`  description              = "${state.vdc.description}"`);
     }
     lines.push(`}`);
   }

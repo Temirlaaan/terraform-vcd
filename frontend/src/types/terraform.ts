@@ -28,6 +28,10 @@ export interface VdcConfig {
   storage_profiles: StorageProfile[];
   enable_thin_provisioning: boolean;
   enable_fast_provisioning: boolean;
+  elasticity: boolean;
+  include_vm_memory_overhead: boolean;
+  delete_force: boolean;
+  delete_recursive: boolean;
   description: string;
 }
 
