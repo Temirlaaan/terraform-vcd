@@ -52,8 +52,8 @@ async def _run_plan_task(
     workspace: TerraformWorkspace,
 ) -> None:
     """Background: terraform init + plan, update DB, release lock."""
-    async with async_session() as db:
-        try:
+    try:
+        async with async_session() as db:
             result = await db.execute(
                 select(Operation).where(Operation.id == operation_id)
             )
@@ -90,34 +90,36 @@ async def _run_plan_task(
             operation.completed_at = datetime.now(timezone.utc)
             await db.commit()
 
-        except Exception as exc:
-            logger.exception("Unexpected error during plan %s", operation_id)
-            try:
-                result = await db.execute(
+    except Exception as exc:
+        logger.exception("Background plan task failed for %s", operation_id)
+        # Update DB status to FAILED (use fresh session — original may be broken)
+        try:
+            async with async_session() as error_db:
+                result = await error_db.execute(
                     select(Operation).where(Operation.id == operation_id)
                 )
-                operation = result.scalar_one()
-                operation.status = OperationStatus.FAILED
-                operation.error_message = str(exc)
-                operation.completed_at = datetime.now(timezone.utc)
-                await db.commit()
-            except Exception:
-                logger.exception("Failed to update operation %s after error", operation_id)
+                op = result.scalar_one()
+                op.status = OperationStatus.FAILED
+                op.error_message = f"Internal error: {type(exc).__name__}"
+                op.completed_at = datetime.now(timezone.utc)
+                await error_db.commit()
+        except Exception:
+            logger.exception("Failed to update operation %s after error", operation_id)
 
-            # Publish error to Redis so WebSocket/frontend sees it
-            redis = None
-            try:
-                redis = Redis.from_url(settings.redis_url, decode_responses=True)
-                channel = log_channel(str(operation_id))
-                await redis.publish(channel, f"[stderr] Background task error: {type(exc).__name__}")
-                await redis.publish(channel, "__EXIT:1")
-            except Exception:
-                logger.warning("Failed to publish error to Redis for %s", operation_id)
-            finally:
-                if redis:
-                    await redis.aclose()
+        # Publish error to Redis so WebSocket/frontend sees it
+        redis = None
+        try:
+            redis = Redis.from_url(settings.redis_url, decode_responses=True)
+            channel = log_channel(str(operation_id))
+            await redis.publish(channel, f"[stderr] Internal Error: {type(exc).__name__}")
+            await redis.publish(channel, "__EXIT:1")
+        except Exception:
+            logger.warning("Failed to publish error to Redis for %s", operation_id)
         finally:
-            await release_org_lock(org_name, str(operation_id))
+            if redis:
+                await redis.aclose()
+    finally:
+        await release_org_lock(org_name, str(operation_id))
 
 
 async def _run_apply_task(
@@ -126,8 +128,8 @@ async def _run_apply_task(
     workspace: TerraformWorkspace,
 ) -> None:
     """Background: terraform apply, update DB, release lock, cleanup."""
-    async with async_session() as db:
-        try:
+    try:
+        async with async_session() as db:
             result = await db.execute(
                 select(Operation).where(Operation.id == apply_id)
             )
@@ -150,42 +152,44 @@ async def _run_apply_task(
             operation.completed_at = datetime.now(timezone.utc)
             await db.commit()
 
-        except Exception as exc:
-            logger.exception("Unexpected error during apply %s", apply_id)
-            try:
-                result = await db.execute(
+    except Exception as exc:
+        logger.exception("Background apply task failed for %s", apply_id)
+        # Update DB status to FAILED (use fresh session — original may be broken)
+        try:
+            async with async_session() as error_db:
+                result = await error_db.execute(
                     select(Operation).where(Operation.id == apply_id)
                 )
-                operation = result.scalar_one()
-                operation.status = OperationStatus.FAILED
-                operation.error_message = str(exc)
-                operation.completed_at = datetime.now(timezone.utc)
-                await db.commit()
-            except Exception:
-                logger.exception("Failed to update operation %s after error", apply_id)
+                op = result.scalar_one()
+                op.status = OperationStatus.FAILED
+                op.error_message = f"Internal error: {type(exc).__name__}"
+                op.completed_at = datetime.now(timezone.utc)
+                await error_db.commit()
+        except Exception:
+            logger.exception("Failed to update operation %s after error", apply_id)
 
-            # Publish error to Redis so WebSocket/frontend sees it
-            redis = None
-            try:
-                redis = Redis.from_url(settings.redis_url, decode_responses=True)
-                channel = log_channel(str(apply_id))
-                await redis.publish(channel, f"[stderr] Background task error: {type(exc).__name__}")
-                await redis.publish(channel, "__EXIT:1")
-            except Exception:
-                logger.warning("Failed to publish error to Redis for %s", apply_id)
-            finally:
-                if redis:
-                    await redis.aclose()
+        # Publish error to Redis so WebSocket/frontend sees it
+        redis = None
+        try:
+            redis = Redis.from_url(settings.redis_url, decode_responses=True)
+            channel = log_channel(str(apply_id))
+            await redis.publish(channel, f"[stderr] Internal Error: {type(exc).__name__}")
+            await redis.publish(channel, "__EXIT:1")
+        except Exception:
+            logger.warning("Failed to publish error to Redis for %s", apply_id)
         finally:
-            await release_org_lock(org_name, str(apply_id))
-            if settings.workspace_cleanup_enabled:
-                try:
-                    workspace.cleanup()
-                    logger.info("Cleaned up workspace for apply %s", apply_id)
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to cleanup workspace for apply %s: %s", apply_id, exc,
-                    )
+            if redis:
+                await redis.aclose()
+    finally:
+        await release_org_lock(org_name, str(apply_id))
+        if settings.workspace_cleanup_enabled:
+            try:
+                workspace.cleanup()
+                logger.info("Cleaned up workspace for apply %s", apply_id)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to cleanup workspace for apply %s: %s", apply_id, exc,
+                )
 
 
 # ------------------------------------------------------------------

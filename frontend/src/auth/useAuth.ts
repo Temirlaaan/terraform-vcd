@@ -13,7 +13,7 @@ export function useAuth() {
     return {
       initialized: true,
       authenticated: true,
-      token: "",
+      token: "auth-disabled",
       username: "anonymous",
       fullName: "Anonymous (auth disabled)",
       email: "anonymous@local",
