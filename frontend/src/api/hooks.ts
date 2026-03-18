@@ -184,6 +184,10 @@ interface ApplyResponse {
   operation_id: string;
 }
 
+interface DestroyResponse {
+  operation_id: string;
+}
+
 export function usePlan() {
   return useMutation({
     mutationFn: async (config: Record<string, unknown>) => {
@@ -201,6 +205,18 @@ export function useApply() {
     mutationFn: async (operationId: string) => {
       const { data } = await api.post<ApplyResponse>(
         "/api/v1/terraform/apply",
+        { operation_id: operationId }
+      );
+      return data;
+    },
+  });
+}
+
+export function useDestroy() {
+  return useMutation({
+    mutationFn: async (operationId: string) => {
+      const { data } = await api.post<DestroyResponse>(
+        "/api/v1/terraform/destroy",
         { operation_id: operationId }
       );
       return data;

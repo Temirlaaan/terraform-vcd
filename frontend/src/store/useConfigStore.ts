@@ -109,7 +109,7 @@ const defaultBackend: BackendConfig = {
 /*  Store                                                             */
 /* ------------------------------------------------------------------ */
 
-export type PlanStatus = "idle" | "planning" | "planned" | "applying" | "applied" | "error";
+export type PlanStatus = "idle" | "planning" | "planned" | "applying" | "applied" | "destroying" | "destroyed" | "error";
 
 interface ConfigState {
   /* Data */

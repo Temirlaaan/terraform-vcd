@@ -19,7 +19,7 @@ export function FormNumberInput({
 }: FormNumberInputProps) {
   return (
     <label className="block space-y-1">
-      <span className="text-xs font-medium text-slate-400">{label}</span>
+      <span className="text-xs font-medium text-clr-text-secondary">{label}</span>
       <input
         type="number"
         value={value}
@@ -28,7 +28,7 @@ export function FormNumberInput({
         disabled={disabled}
         min={min}
         step={step}
-        className="w-full rounded-md bg-slate-800/70 border border-slate-700/50 px-3 py-1.5 text-sm text-slate-200 placeholder:text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 focus:outline-none transition-colors"
+        className="w-full rounded-sm bg-white border border-clr-border px-2.5 py-1.5 text-sm text-clr-text placeholder:text-clr-placeholder disabled:opacity-50 disabled:cursor-not-allowed focus:border-clr-action focus:outline-none transition-colors"
       />
     </label>
   );

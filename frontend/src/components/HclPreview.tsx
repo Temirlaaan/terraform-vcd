@@ -378,19 +378,19 @@ export function HclPreview() {
   return (
     <div className="flex flex-col h-full">
       {/* Header bar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800">
+      <div className="flex items-center justify-between px-4 py-2 bg-clr-light-gray border-b border-clr-border">
         <div className="flex items-center gap-2">
-          <span className="text-white font-semibold tracking-tight text-sm">
+          <span className="text-clr-text font-semibold tracking-tight text-sm">
             main.tf
           </span>
-          <span className="text-[10px] text-slate-500">
+          <span className="text-[10px] text-clr-text-secondary">
             {lines.length} lines
           </span>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 bg-slate-800/60 border border-slate-700/50 rounded-md px-2.5 py-1 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-clr-text-secondary hover:text-clr-text bg-white border border-clr-border rounded-sm px-2.5 py-1 transition-colors"
           >
             {copied ? (
               <Check className="h-3 w-3 text-emerald-400" />
@@ -401,7 +401,7 @@ export function HclPreview() {
           </button>
           <button
             onClick={handleDownload}
-            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 bg-slate-800/60 border border-slate-700/50 rounded-md px-2.5 py-1 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-clr-text-secondary hover:text-clr-text bg-white border border-clr-border rounded-sm px-2.5 py-1 transition-colors"
           >
             <Download className="h-3 w-3" />
             .tf

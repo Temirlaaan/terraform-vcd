@@ -29,29 +29,29 @@ export function FormSelect({
 }: FormSelectProps) {
   return (
     <label className="block space-y-1">
-      <span className="text-xs font-medium text-slate-400">{label}</span>
+      <span className="text-xs font-medium text-clr-text-secondary">{label}</span>
       <div className="relative">
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled || isLoading}
           className={cn(
-            "w-full appearance-none rounded-md bg-slate-800/70 border px-3 py-1.5 pr-8 text-sm text-slate-200",
-            "focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 focus:outline-none transition-colors",
+            "w-full appearance-none rounded-sm bg-white border px-2.5 py-1.5 pr-8 text-sm text-clr-text",
+            "focus:border-clr-action focus:outline-none transition-colors",
             "disabled:opacity-50 disabled:cursor-not-allowed",
             error
-              ? "border-rose-500/50"
-              : "border-slate-700/50"
+              ? "border-clr-danger"
+              : "border-clr-border"
           )}
         >
-          <option value="" className="bg-slate-900 text-slate-500">
+          <option value="" className="bg-white text-clr-placeholder">
             {isLoading ? "Loading..." : placeholder}
           </option>
           {options.map((opt) => (
             <option
               key={opt.value}
               value={opt.value}
-              className="bg-slate-900 text-slate-200"
+              className="bg-white text-clr-text"
             >
               {opt.label}
             </option>
@@ -61,15 +61,15 @@ export function FormSelect({
         {/* Right icon: spinner or chevron */}
         <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2.5">
           {isLoading ? (
-            <Loader2 className="h-3.5 w-3.5 text-slate-500 animate-spin" />
+            <Loader2 className="h-3.5 w-3.5 text-clr-placeholder animate-spin" />
           ) : (
-            <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+            <ChevronDown className="h-3.5 w-3.5 text-clr-placeholder" />
           )}
         </div>
       </div>
 
       {error && (
-        <p className="text-[11px] text-rose-400">{error}</p>
+        <p className="text-[11px] text-clr-danger">{error}</p>
       )}
     </label>
   );

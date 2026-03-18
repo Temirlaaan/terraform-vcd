@@ -9,6 +9,7 @@ import {
   RotateCcw,
   Play,
   Rocket,
+  Trash2,
   Loader2,
   AlertCircle,
 } from "lucide-react";
@@ -23,6 +24,7 @@ import {
   useNetworkPools,
   usePlan,
   useApply,
+  useDestroy,
 } from "@/api/hooks";
 
 /* ------------------------------------------------------------------ */
@@ -48,12 +50,12 @@ function Section({
 
   if (disabled) {
     return (
-      <div className="border-b border-slate-800 opacity-50">
-        <div className="flex w-full items-center gap-2.5 px-4 py-3 text-xs font-semibold tracking-wide uppercase text-slate-600 cursor-not-allowed">
+      <div className="border-b border-clr-border opacity-50">
+        <div className="flex w-full items-center gap-2.5 px-4 py-3 text-xs font-semibold tracking-wide uppercase text-clr-placeholder cursor-not-allowed">
           <ChevronRight className="h-3.5 w-3.5" />
           <Icon className="h-4 w-4" />
           {title}
-          <span className="ml-auto text-[10px] font-normal italic text-slate-600">
+          <span className="ml-auto text-[10px] font-normal italic text-clr-placeholder">
             Coming soon
           </span>
         </div>
@@ -62,10 +64,10 @@ function Section({
   }
 
   return (
-    <div className="border-b border-slate-800">
+    <div className="border-b border-clr-border">
       <button
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-2.5 px-4 py-3 text-xs font-semibold tracking-wide uppercase text-slate-400 hover:text-slate-200 transition-colors"
+        className="flex w-full items-center gap-2.5 px-4 py-3 text-xs font-semibold tracking-wide uppercase text-clr-text-secondary hover:text-clr-text transition-colors"
       >
         <ChevronRight
           className={cn(
@@ -76,7 +78,7 @@ function Section({
         <Icon className="h-4 w-4" />
         {title}
         {badge && (
-          <span className="ml-auto text-[10px] font-medium text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded px-1.5 py-0.5">
+          <span className="ml-auto text-[10px] font-medium text-clr-action bg-[#0079b8]/10 border border-[#0079b8]/20 rounded px-1.5 py-0.5">
             {badge}
           </span>
         )}
@@ -215,7 +217,7 @@ function VdcSection() {
       />
 
       {/* Compute */}
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 pt-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-clr-text-secondary pt-2">
         Compute
       </p>
       <div className="grid grid-cols-2 gap-2">
@@ -250,7 +252,7 @@ function VdcSection() {
       </div>
 
       {/* Network */}
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 pt-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-clr-text-secondary pt-2">
         Network
       </p>
       {!npLoading && npOptions.length === 0 ? (
@@ -272,22 +274,22 @@ function VdcSection() {
       )}
 
       {/* Storage Profiles */}
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 pt-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-clr-text-secondary pt-2">
         Storage Profiles
       </p>
       {vdc.storage_profiles.map((sp, i) => (
         <div
           key={i}
-          className="rounded-md border border-slate-700/50 bg-slate-800/30 p-2 space-y-2"
+          className="rounded-sm border border-clr-border bg-white p-2 space-y-2"
         >
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-medium text-slate-500">
+            <span className="text-[10px] font-medium text-clr-text-secondary">
               Profile {i + 1}
             </span>
             {vdc.storage_profiles.length > 1 && (
               <button
                 onClick={() => removeStorageProfile(i)}
-                className="text-[10px] text-rose-400 hover:text-rose-300"
+                className="text-[10px] text-clr-danger hover:text-clr-danger/80"
               >
                 Remove
               </button>
@@ -332,7 +334,7 @@ function VdcSection() {
       ))}
       <button
         onClick={addStorageProfile}
-        className="w-full rounded-md border border-dashed border-slate-700 py-1.5 text-[11px] text-slate-500 hover:text-slate-300 hover:border-slate-500 transition-colors"
+        className="w-full rounded-sm border border-dashed border-clr-border py-1.5 text-[11px] text-clr-text-secondary hover:text-clr-text hover:border-clr-placeholder transition-colors"
       >
         + Add Storage Profile
       </button>
@@ -340,7 +342,7 @@ function VdcSection() {
       {/* Flex Options */}
       {isFlex && (
         <>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 pt-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-clr-text-secondary pt-2">
             Flex Options
           </p>
           <FormCheckbox
@@ -364,7 +366,7 @@ function VdcSection() {
       )}
 
       {/* Options */}
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 pt-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-clr-text-secondary pt-2">
         Options
       </p>
       <FormCheckbox
@@ -423,9 +425,11 @@ function ActionBar() {
 
   const planMutation = usePlan();
   const applyMutation = useApply();
+  const destroyMutation = useDestroy();
 
-  const canPlan = org.name.length > 0 && planStatus !== "planning" && planStatus !== "applying";
+  const canPlan = org.name.length > 0 && planStatus !== "planning" && planStatus !== "applying" && planStatus !== "destroying";
   const canApply = planStatus === "planned" && currentOperationId !== null && !applyMutation.isPending;
+  const canDestroy = planStatus === "applied" && currentOperationId !== null && !destroyMutation.isPending;
 
   const handlePlan = () => {
     const config: Record<string, unknown> = { provider, backend };
@@ -483,13 +487,32 @@ function ActionBar() {
     });
   };
 
+  const handleDestroy = () => {
+    if (!currentOperationId) return;
+    setOperation(currentOperationId, "destroying");
+    openTerminal();
+
+    destroyMutation.mutate(currentOperationId, {
+      onSuccess: (data) => {
+        setOperation(data.operation_id, "destroying");
+        openTerminal();
+      },
+      onError: (err) => {
+        const message =
+          (err as { response?: { data?: { detail?: string } } }).response?.data?.detail ??
+          (err as Error).message;
+        setOperation(currentOperationId, "error", message);
+      },
+    });
+  };
+
   return (
-    <div className="flex-none border-t border-slate-800 p-4 space-y-3">
+    <div className="flex-none border-t border-clr-border p-4 space-y-3">
       {/* Error banner */}
       {planError && (
-        <div className="flex items-start gap-2 rounded-md bg-rose-500/10 border border-rose-500/20 px-3 py-2">
-          <AlertCircle className="h-4 w-4 text-rose-400 flex-none mt-0.5" />
-          <p className="text-xs text-rose-300 break-all">{planError}</p>
+        <div className="flex items-start gap-2 rounded-sm bg-red-50 border border-clr-danger/30 px-3 py-2">
+          <AlertCircle className="h-4 w-4 text-clr-danger flex-none mt-0.5" />
+          <p className="text-xs text-clr-danger break-all">{planError}</p>
         </div>
       )}
 
@@ -499,11 +522,11 @@ function ActionBar() {
           onClick={handlePlan}
           disabled={!canPlan}
           className={cn(
-            "flex-1 flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors",
-            "focus:ring-2 focus:ring-blue-500/50 focus:outline-none",
+            "flex-1 flex items-center justify-center gap-2 rounded-sm px-4 py-2 text-sm font-medium transition-colors",
+            "focus:ring-2 focus:ring-clr-action/50 focus:outline-none",
             canPlan
-              ? "bg-blue-600 hover:bg-blue-500 text-white"
-              : "bg-slate-800 text-slate-500 cursor-not-allowed"
+              ? "bg-clr-action hover:bg-clr-action-hover text-white"
+              : "bg-clr-light-gray text-clr-placeholder cursor-not-allowed"
           )}
         >
           {planStatus === "planning" ? (
@@ -518,11 +541,11 @@ function ActionBar() {
           onClick={handleApply}
           disabled={!canApply}
           className={cn(
-            "flex-1 flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors",
-            "focus:ring-2 focus:ring-emerald-500/50 focus:outline-none",
+            "flex-1 flex items-center justify-center gap-2 rounded-sm px-4 py-2 text-sm font-medium transition-colors",
+            "focus:ring-2 focus:ring-clr-success/50 focus:outline-none",
             canApply
-              ? "bg-emerald-600 hover:bg-emerald-500 text-white"
-              : "bg-slate-800 text-slate-500 cursor-not-allowed"
+              ? "bg-clr-success hover:bg-[#568f1c] text-white"
+              : "bg-clr-light-gray text-clr-placeholder cursor-not-allowed"
           )}
         >
           {planStatus === "applying" ? (
@@ -534,15 +557,42 @@ function ActionBar() {
         </button>
       </div>
 
+      {/* Destroy button — visible only after successful apply */}
+      {(planStatus === "applied" || planStatus === "destroying" || planStatus === "destroyed") && (
+        <button
+          onClick={handleDestroy}
+          disabled={!canDestroy}
+          className={cn(
+            "w-full flex items-center justify-center gap-2 rounded-sm px-4 py-2 text-sm font-medium transition-colors",
+            "focus:ring-2 focus:ring-clr-danger/50 focus:outline-none",
+            canDestroy
+              ? "bg-clr-danger hover:bg-[#a81b00] text-white"
+              : "bg-clr-light-gray text-clr-placeholder cursor-not-allowed"
+          )}
+        >
+          {planStatus === "destroying" ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
+          {planStatus === "destroying" ? "Destroying..." : "Destroy"}
+        </button>
+      )}
+
       {/* Status hint */}
       {planStatus === "planned" && (
-        <p className="text-[11px] text-emerald-400 text-center">
+        <p className="text-[11px] text-clr-success text-center">
           Plan succeeded — review output, then apply.
         </p>
       )}
       {planStatus === "applied" && (
-        <p className="text-[11px] text-emerald-400 text-center">
+        <p className="text-[11px] text-clr-success text-center">
           Apply completed successfully.
+        </p>
+      )}
+      {planStatus === "destroyed" && (
+        <p className="text-[11px] text-clr-danger text-center">
+          Destroy completed successfully.
         </p>
       )}
     </div>
@@ -559,13 +609,13 @@ export function Sidebar() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
-        <h2 className="text-white font-semibold tracking-tight text-sm">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-clr-border">
+        <h2 className="text-clr-text font-semibold tracking-tight text-sm">
           Configuration
         </h2>
         <button
           onClick={resetAll}
-          className="text-slate-500 hover:text-slate-300 transition-colors"
+          className="text-clr-placeholder hover:text-clr-text transition-colors"
           title="Reset all fields"
         >
           <RotateCcw className="h-3.5 w-3.5" />

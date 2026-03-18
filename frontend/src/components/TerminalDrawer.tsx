@@ -75,6 +75,12 @@ export function TerminalDrawer() {
             code === 0 ? "applied" : "error",
             code !== 0 ? "Terraform apply failed" : null,
           );
+        } else if (status === "destroying") {
+          setOp(
+            opId,
+            code === 0 ? "destroyed" : "error",
+            code !== 0 ? "Terraform destroy failed" : null,
+          );
         }
       }
     };
@@ -104,13 +110,17 @@ export function TerminalDrawer() {
       ? "Running plan..."
       : planStatus === "applying"
         ? "Running apply..."
-        : planStatus === "planned"
-          ? "Plan complete"
-          : planStatus === "applied"
-            ? "Apply complete"
-            : operationId
-              ? `Operation ${operationId.slice(0, 8)}`
-              : "No active operation";
+        : planStatus === "destroying"
+          ? "Running destroy..."
+          : planStatus === "planned"
+            ? "Plan complete"
+            : planStatus === "applied"
+              ? "Apply complete"
+              : planStatus === "destroyed"
+                ? "Destroy complete"
+                : operationId
+                  ? `Operation ${operationId.slice(0, 8)}`
+                  : "No active operation";
 
   const dotColor = connected
     ? "text-emerald-500"

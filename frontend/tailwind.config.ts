@@ -21,17 +21,22 @@ const config: Config = {
         ],
       },
       colors: {
-        surface: {
-          DEFAULT: "rgb(2 6 23)",       // slate-950
-          raised: "rgb(15 23 42)",      // slate-900
-          overlay: "rgb(30 41 59 / 0.5)", // slate-800/50
+        clr: {
+          action: '#0079b8',
+          'action-hover': '#004a7c',
+          'action-light': '#49afd9',
         },
-        border: {
-          DEFAULT: "rgb(51 65 85)",     // slate-700
-          subtle: "rgb(51 65 85 / 0.5)", // slate-700/50
-          muted: "rgb(30 41 59)",       // slate-800
-        },
-        terminal: "#0d1117",
+        'clr-header': '#314351',
+        'clr-near-white': '#fafafa',
+        'clr-light-gray': '#f2f2f2',
+        'clr-border': '#d7d7d7',
+        'clr-placeholder': '#9a9a9a',
+        'clr-text-secondary': '#565656',
+        'clr-text': '#313131',
+        'clr-success': '#62a420',
+        'clr-danger': '#c92100',
+        'clr-warning': '#c25400',
+        terminal: '#0d1117',
       },
       height: {
         topbar: "3.5rem",    // h-14

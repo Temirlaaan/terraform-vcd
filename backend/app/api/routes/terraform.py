@@ -19,6 +19,7 @@ from app.models.operation import Operation, OperationStatus, OperationType
 from app.schemas.terraform import (
     TerraformApplyRequest,
     TerraformConfig,
+    TerraformDestroyByOperationRequest,
     TerraformGenerateRequest,
     TerraformGenerateResponse,
     TerraformPlanRequest,
@@ -337,3 +338,154 @@ async def apply(
     # --- Launch background task and return immediately ---
     asyncio.create_task(_run_apply_task(apply_id, org_name, workspace))
     return TerraformPlanResponse(operation_id=apply_id)
+
+
+# ------------------------------------------------------------------
+#  Destroy
+# ------------------------------------------------------------------
+
+async def _run_destroy_task(
+    destroy_id: uuid.UUID,
+    org_name: str,
+    workspace: TerraformWorkspace,
+) -> None:
+    """Background: terraform init + destroy, update DB, release lock, cleanup."""
+    try:
+        async with async_session() as db:
+            result = await db.execute(
+                select(Operation).where(Operation.id == destroy_id)
+            )
+            operation = result.scalar_one()
+
+            runner = TerraformRunner(workspace.work_dir, operation_id=str(destroy_id))
+
+            # --- terraform init ---
+            init_result = await runner.init()
+            if not init_result.success:
+                logger.error(
+                    "terraform init failed for destroy %s: %s",
+                    destroy_id, init_result.stderr,
+                )
+                operation.status = OperationStatus.FAILED
+                operation.error_message = init_result.stderr
+                operation.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+                return
+
+            # --- terraform destroy ---
+            destroy_result = await runner.destroy()
+            operation.plan_output = destroy_result.stdout
+            if destroy_result.success:
+                operation.status = OperationStatus.SUCCESS
+                logger.info("Destroy succeeded for operation %s", destroy_id)
+            else:
+                operation.status = OperationStatus.FAILED
+                operation.error_message = destroy_result.stderr
+                logger.error(
+                    "Destroy failed for operation %s: %s",
+                    destroy_id, destroy_result.stderr,
+                )
+            operation.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+
+    except Exception as exc:
+        logger.exception("Background destroy task failed for %s", destroy_id)
+        try:
+            async with async_session() as error_db:
+                result = await error_db.execute(
+                    select(Operation).where(Operation.id == destroy_id)
+                )
+                op = result.scalar_one()
+                op.status = OperationStatus.FAILED
+                op.error_message = f"Internal error: {type(exc).__name__}"
+                op.completed_at = datetime.now(timezone.utc)
+                await error_db.commit()
+        except Exception:
+            logger.exception("Failed to update operation %s after error", destroy_id)
+
+        redis = None
+        try:
+            redis = Redis.from_url(settings.redis_url, decode_responses=True)
+            channel = log_channel(str(destroy_id))
+            await redis.publish(channel, f"[stderr] Internal Error: {type(exc).__name__}")
+            await redis.publish(channel, "__EXIT:1")
+        except Exception:
+            logger.warning("Failed to publish error to Redis for %s", destroy_id)
+        finally:
+            if redis:
+                await redis.aclose()
+    finally:
+        await release_org_lock(org_name, str(destroy_id))
+        if settings.workspace_cleanup_enabled:
+            try:
+                workspace.cleanup()
+                logger.info("Cleaned up workspace for destroy %s", destroy_id)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to cleanup workspace for destroy %s: %s", destroy_id, exc,
+                )
+
+
+@router.post("/destroy", response_model=TerraformPlanResponse)
+async def destroy(
+    body: TerraformDestroyByOperationRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AuthenticatedUser = Depends(require_roles("tf-admin", "tf-operator")),
+):
+    """Launch ``terraform destroy`` in background for a previously applied operation.
+
+    Requires a successful APPLY operation_id. Creates a new workspace with the
+    same HCL (Terraform pulls state from S3 backend automatically), then runs
+    ``terraform init`` + ``terraform destroy -auto-approve``.
+    """
+    # --- Fetch the source apply operation ---
+    result = await db.execute(
+        select(Operation).where(Operation.id == body.operation_id)
+    )
+    source_op = result.scalar_one_or_none()
+    if not source_op:
+        raise HTTPException(status_code=404, detail="Operation not found")
+    if source_op.type != OperationType.APPLY:
+        raise HTTPException(status_code=400, detail="Can only destroy from a successful apply operation")
+    if source_op.status != OperationStatus.SUCCESS:
+        raise HTTPException(status_code=400, detail="Can only destroy a successfully applied operation")
+
+    org_name = source_op.target_org
+    destroy_id = uuid.uuid4()
+
+    logger.info(
+        "user=%s action=destroy org=%s source_id=%s destroy_id=%s",
+        user.username, org_name, body.operation_id, destroy_id,
+    )
+
+    # --- Acquire distributed lock ---
+    locked = await acquire_org_lock(org_name, str(destroy_id))
+    if not locked:
+        holder = await get_org_lock_holder(org_name)
+        logger.warning("Org %s locked by %s, rejecting destroy from %s", org_name, holder, user.username)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Organisation '{org_name}' is locked by operation {holder}. "
+                "Wait for it to finish or release the lock."
+            ),
+        )
+
+    # --- Create destroy DB record ---
+    operation = Operation(
+        id=destroy_id,
+        type=OperationType.DESTROY,
+        status=OperationStatus.RUNNING,
+        user_id=user.sub,
+        username=user.username,
+        target_org=org_name,
+    )
+    db.add(operation)
+    await db.commit()
+
+    # Reuse the apply workspace (it has main.tf; state is on S3)
+    workspace = TerraformWorkspace(org_name, body.operation_id)
+
+    # --- Launch background task and return immediately ---
+    asyncio.create_task(_run_destroy_task(destroy_id, org_name, workspace))
+    return TerraformPlanResponse(operation_id=destroy_id)

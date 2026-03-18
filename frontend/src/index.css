@@ -6,20 +6,20 @@
 
 @layer base {
   body {
-    @apply bg-slate-950 text-slate-200 antialiased;
+    @apply bg-white text-[#313131] antialiased;
   }
 
-  /* Scrollbar styling for the dark theme */
+  /* Scrollbar styling for the light theme */
   ::-webkit-scrollbar {
     @apply w-2;
   }
   ::-webkit-scrollbar-track {
-    @apply bg-slate-900;
+    @apply bg-[#f2f2f2];
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-slate-700 rounded-full;
+    @apply bg-[#d7d7d7] rounded-full;
   }
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-slate-600;
+    @apply bg-[#9a9a9a];
   }
 }

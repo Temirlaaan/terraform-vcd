@@ -355,6 +355,10 @@ class TerraformDestroyRequest(BaseModel):
         return _validate_safe_name(v, "target_org")
 
 
+class TerraformDestroyByOperationRequest(BaseModel):
+    operation_id: uuid.UUID
+
+
 # --- Operation Schemas ---
 
 
