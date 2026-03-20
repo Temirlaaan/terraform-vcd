@@ -3,12 +3,14 @@ import {
   ChevronDown,
   Terminal as TerminalIcon,
   LogOut,
+  LayoutGrid,
+  FolderOpen,
+  Settings,
 } from "lucide-react";
+import { NavLink, Outlet } from "react-router-dom";
 import { cn } from "@/utils/cn";
 import { useConfigStore } from "@/store/useConfigStore";
 import { useAuth } from "@/auth/useAuth";
-import { Sidebar } from "./Sidebar";
-import { HclPreview } from "./HclPreview";
 import { TerminalDrawer } from "./TerminalDrawer";
 
 /* ------------------------------------------------------------------ */
@@ -23,9 +25,9 @@ function TopBar() {
   const displayName = fullName || username || "User";
   const initials = displayName
     .split(" ")
-    .map((w) => w[0])
+    .map((w) => w[0]?.toUpperCase() ?? "")
     .join("")
-    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
     .slice(0, 2);
 
   return (
@@ -76,6 +78,7 @@ function TopBar() {
           <button
             onClick={logout}
             className="text-white/50 hover:text-white transition-colors"
+            aria-label="Sign out"
             title="Sign out"
           >
             <LogOut className="h-3.5 w-3.5" />
@@ -83,6 +86,41 @@ function TopBar() {
         </div>
       </div>
     </header>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  NavSidebar                                                        */
+/* ------------------------------------------------------------------ */
+
+const navItems = [
+  { to: "/", icon: LayoutGrid, label: "Service Catalog", end: true },
+  { to: "/deployments", icon: FolderOpen, label: "My Deployments" },
+  { to: "/settings", icon: Settings, label: "Settings" },
+] as const;
+
+function NavSidebar() {
+  return (
+    <nav className="w-56 flex-none bg-clr-near-white border-r border-clr-border py-3 flex flex-col gap-0.5" aria-label="Main navigation">
+      {navItems.map(({ to, icon: Icon, label, ...rest }) => (
+        <NavLink
+          key={to}
+          to={to}
+          end={"end" in rest}
+          className={({ isActive }) =>
+            cn(
+              "flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors border-l-2",
+              isActive
+                ? "bg-white text-clr-action font-medium border-clr-action"
+                : "text-clr-text-secondary hover:bg-white hover:text-clr-text border-transparent"
+            )
+          }
+        >
+          <Icon className="h-4 w-4" />
+          {label}
+        </NavLink>
+      ))}
+    </nav>
   );
 }
 
@@ -99,15 +137,13 @@ export function Layout() {
 
       {/* Main workspace */}
       <div className="flex flex-1 min-h-0">
-        {/* Left sidebar — config form */}
-        <aside className="w-96 flex-none bg-clr-near-white border-r border-clr-border overflow-y-auto">
-          <Sidebar />
-        </aside>
+        {/* Left nav sidebar */}
+        <NavSidebar />
 
-        {/* Right panel — HCL preview */}
+        {/* Content area */}
         <main className="flex-1 min-w-0 overflow-hidden flex flex-col">
-          <div className="flex-1 overflow-y-auto">
-            <HclPreview />
+          <div className="flex-1 overflow-y-auto flex flex-col">
+            <Outlet />
           </div>
 
           {/* Bottom drawer — terminal */}

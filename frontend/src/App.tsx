@@ -1,6 +1,12 @@
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { KeycloakProvider } from "@/auth/KeycloakProvider";
 import { Layout } from "@/components/Layout";
+import { CatalogPage } from "@/pages/CatalogPage";
+import { ProvisionPage } from "@/pages/ProvisionPage";
+import { DeploymentsPage } from "@/pages/DeploymentsPage";
+import { SettingsPage } from "@/pages/SettingsPage";
+import { NotFoundPage } from "@/pages/NotFoundPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -13,10 +19,20 @@ const queryClient = new QueryClient({
 
 export default function App() {
   return (
-    <KeycloakProvider>
-      <QueryClientProvider client={queryClient}>
-        <Layout />
-      </QueryClientProvider>
-    </KeycloakProvider>
+    <BrowserRouter>
+      <KeycloakProvider>
+        <QueryClientProvider client={queryClient}>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route index element={<CatalogPage />} />
+              <Route path="provision" element={<ProvisionPage />} />
+              <Route path="deployments" element={<DeploymentsPage />} />
+              <Route path="settings" element={<SettingsPage />} />
+              <Route path="*" element={<NotFoundPage />} />
+            </Route>
+          </Routes>
+        </QueryClientProvider>
+      </KeycloakProvider>
+    </BrowserRouter>
   );
 }
