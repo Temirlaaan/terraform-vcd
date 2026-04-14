@@ -373,6 +373,32 @@ class TestHCLGeneratorEdge:
         })
         assert "dedicate_external_network = true" in hcl
 
+    def test_edge_cluster_id_rendered(self):
+        hcl = self.gen.generate({
+            "org": {"name": "Acme"},
+            "vdc": {"name": "V", "provider_vdc_name": "p"},
+            "edge": self._edge_config(edge_cluster_id="urn:vcloud:edgeCluster:aaaa-1111"),
+        })
+        assert 'edge_cluster_id           = "urn:vcloud:edgeCluster:aaaa-1111"' in hcl
+
+    def test_edge_cluster_id_escaped_prevents_injection(self):
+        """Verify HCL injection via edge_cluster_id is neutralized."""
+        hcl = self.gen.generate({
+            "org": {"name": "Acme"},
+            "vdc": {"name": "V", "provider_vdc_name": "p"},
+            "edge": self._edge_config(edge_cluster_id='urn:test"\n}\nresource "evil" {'),
+        })
+        assert '\n}\nresource "evil"' not in hcl
+        assert '\\"' in hcl
+
+    def test_edge_cluster_id_not_rendered_when_absent(self):
+        hcl = self.gen.generate({
+            "org": {"name": "Acme"},
+            "vdc": {"name": "V", "provider_vdc_name": "p"},
+            "edge": self._edge_config(),
+        })
+        assert "edge_cluster_id" not in hcl
+
     def test_no_legacy_fields_in_output(self):
         """Ensure no legacy vcd_edgegateway attributes appear."""
         hcl = self.gen.generate({

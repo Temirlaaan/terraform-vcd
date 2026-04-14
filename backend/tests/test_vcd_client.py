@@ -1,4 +1,4 @@
-"""Tests for VCDClient methods — pvdc name→ID resolution and network pools."""
+"""Tests for VCDClient methods — pvdc name→ID resolution, network pools, and edge clusters."""
 
 from unittest.mock import AsyncMock, patch
 
@@ -19,6 +19,38 @@ FAKE_PVDCS = [
 FAKE_STORAGE_POLICIES = [
     {"name": "gold-ssd", "id": "urn:vcloud:vdcstorageProfile:1111", "isEnabled": True},
     {"name": "silver-hdd", "id": "urn:vcloud:vdcstorageProfile:2222", "isEnabled": False},
+]
+
+FAKE_EDGE_CLUSTERS = [
+    {
+        "name": "edge-cluster-01",
+        "id": "urn:vcloud:edgeCluster:aaaa-1111",
+        "nodeCount": 2,
+    },
+    {
+        "name": "edge-cluster-02",
+        "id": "urn:vcloud:edgeCluster:bbbb-2222",
+        "nodeCount": 1,
+    },
+]
+
+FAKE_VDCS_FOR_EDGES = [
+    {
+        "name": "test-vdc",
+        "id": "urn:vcloud:vdc:1111-2222",
+        "org": {"name": "test-org"},
+        "allocationModel": "AllocationVApp",
+        "isEnabled": True,
+    },
+]
+
+FAKE_EDGE_GATEWAYS = [
+    {
+        "name": "edge-gw-01",
+        "id": "urn:vcloud:gateway:aaaa",
+        "orgVdc": {"name": "test-vdc"},
+        "gatewayType": "NSXT_BACKED",
+    },
 ]
 
 FAKE_NETWORK_POOL_QUERY = {
@@ -132,3 +164,85 @@ class TestNetworkPools:
         result = await client.get_network_pools.__wrapped__(client, pvdc=None)
 
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Edge Clusters
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeClusters:
+    async def test_returns_clusters_filtered_by_vdc(self, client):
+        """get_edge_clusters should filter by orgVdcId and return formatted list."""
+        client._get_paginated = AsyncMock(return_value=FAKE_EDGE_CLUSTERS)
+
+        result = await client.get_edge_clusters.__wrapped__(
+            client, vdc_id="urn:vcloud:vdc:1111-2222"
+        )
+
+        assert len(result) == 2
+        assert result[0]["name"] == "edge-cluster-01"
+        assert result[0]["id"] == "urn:vcloud:edgeCluster:aaaa-1111"
+        assert result[1]["name"] == "edge-cluster-02"
+
+        # Verify RSQL filter
+        call_args = client._get_paginated.call_args
+        assert call_args[0][0] == "/cloudapi/1.0.0/edgeClusters"
+        params = call_args[1].get("params") or call_args[0][1]
+        assert "orgVdcId==urn:vcloud:vdc:1111-2222" in params["filter"]
+
+    async def test_empty_clusters(self, client):
+        """get_edge_clusters returns [] when no clusters found."""
+        client._get_paginated = AsyncMock(return_value=[])
+
+        result = await client.get_edge_clusters.__wrapped__(
+            client, vdc_id="urn:vcloud:vdc:nonexistent"
+        )
+
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# VDCs by org ID
+# ---------------------------------------------------------------------------
+
+
+class TestVdcsByOrgId:
+    async def test_returns_vdcs_filtered_by_org_id(self, client):
+        """get_vdcs_by_org_id should filter by org URN."""
+        client._get_paginated = AsyncMock(return_value=FAKE_VDCS_FOR_EDGES)
+
+        result = await client.get_vdcs_by_org_id.__wrapped__(
+            client, org_id="urn:vcloud:org:aaaa-bbbb"
+        )
+
+        assert len(result) == 1
+        assert result[0]["name"] == "test-vdc"
+        assert result[0]["id"] == "urn:vcloud:vdc:1111-2222"
+
+        call_args = client._get_paginated.call_args
+        params = call_args[1].get("params") or call_args[0][1]
+        assert "org==urn:vcloud:org:aaaa-bbbb" in params["filter"]
+
+
+# ---------------------------------------------------------------------------
+# Edge Gateways by VDC ID
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeGatewaysByVdcId:
+    async def test_returns_edges_filtered_by_vdc_id(self, client):
+        """get_edge_gateways_by_vdc_id should filter by orgVdc.id URN."""
+        client._get_paginated = AsyncMock(return_value=FAKE_EDGE_GATEWAYS)
+
+        result = await client.get_edge_gateways_by_vdc_id.__wrapped__(
+            client, vdc_id="urn:vcloud:vdc:1111-2222"
+        )
+
+        assert len(result) == 1
+        assert result[0]["name"] == "edge-gw-01"
+        assert result[0]["id"] == "urn:vcloud:gateway:aaaa"
+
+        call_args = client._get_paginated.call_args
+        params = call_args[1].get("params") or call_args[0][1]
+        assert "orgVdc.id==urn:vcloud:vdc:1111-2222" in params["filter"]

@@ -21,7 +21,7 @@ function generateHcl(state: {
   backend: { bucket: string; endpoint: string; region: string };
   org: { name: string; full_name: string; description: string; is_enabled: boolean; delete_force: boolean; delete_recursive: boolean };
   vdc: { name: string; provider_vdc_name: string; allocation_model: string; network_pool_name: string; cpu_allocated: number; cpu_limit: number; memory_allocated: number; memory_limit: number; storage_profiles: { name: string; limit: number; default: boolean; enabled: boolean }[]; enable_thin_provisioning: boolean; enable_fast_provisioning: boolean; elasticity: boolean; include_vm_memory_overhead: boolean; memory_guaranteed?: number; delete_force: boolean; delete_recursive: boolean; description: string };
-  edge: { name: string; external_network_name: string; subnet: { gateway: string; prefix_length: number; primary_ip: string; start_address?: string; end_address?: string }; dedicate_external_network: boolean; description?: string };
+  edge: { name: string; external_network_name: string; subnet: { gateway: string; prefix_length: number; primary_ip: string; start_address?: string; end_address?: string }; dedicate_external_network: boolean; edge_cluster_id?: string; description?: string };
   network: { name: string; gateway: string; prefix_length: number; dns1?: string; dns2?: string; static_ip_pool?: { start_address: string; end_address: string }; description?: string };
   vapp: { name: string; description?: string; power_on: boolean };
   vm: { name: string; computer_name: string; catalog_name: string; template_name: string; memory: number; cpus: number; cpu_cores: number; storage_profile?: string; network?: { type: string; name: string; ip_allocation_mode: string; ip?: string }; power_on: boolean; description?: string };
@@ -156,6 +156,9 @@ function generateHcl(state: {
     lines.push(`  owner_id                  = data.vcd_org_vdc.${vdcSlug}_for_edge.id`);
     lines.push(`  external_network_id       = data.vcd_external_network_v2.${extSlug}.id`);
     lines.push(`  dedicate_external_network = ${state.edge.dedicate_external_network}`);
+    if (state.edge.edge_cluster_id) {
+      lines.push(`  edge_cluster_id           = "${state.edge.edge_cluster_id}"`);
+    }
     if (state.edge.description) {
       lines.push(`  description               = "${state.edge.description}"`);
     }

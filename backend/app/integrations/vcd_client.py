@@ -280,6 +280,55 @@ class VCDClient:
             )
         return pools
 
+    @cached(prefix="vcd:vdcs_by_org", ttl=_CACHE_TTL)
+    async def get_vdcs_by_org_id(self, org_id: str) -> list[dict]:
+        """Return VDCs filtered by org URN ID."""
+        params = {"filter": f"(org=={org_id})"}
+        items = await self._get_paginated("/cloudapi/1.0.0/vdcs", params=params)
+        vdcs: list[dict] = []
+        for rec in items:
+            vdcs.append(
+                {
+                    "name": rec.get("name", ""),
+                    "id": rec.get("id", ""),
+                }
+            )
+        return vdcs
+
+    @cached(prefix="vcd:edges_by_vdc", ttl=_CACHE_TTL)
+    async def get_edge_gateways_by_vdc_id(self, vdc_id: str) -> list[dict]:
+        """Return Edge Gateways filtered by VDC URN ID."""
+        params = {"filter": f"(orgVdc.id=={vdc_id})"}
+        items = await self._get_paginated("/cloudapi/1.0.0/edgeGateways", params=params)
+        edges: list[dict] = []
+        for rec in items:
+            edges.append(
+                {
+                    "name": rec.get("name", ""),
+                    "id": rec.get("id", ""),
+                }
+            )
+        return edges
+
+    @cached(prefix="vcd:edge_clusters", ttl=_CACHE_TTL)
+    async def get_edge_clusters(self, vdc_id: str) -> list[dict]:
+        """Return NSX-T Edge Clusters available to a VDC.
+
+        NOTE: VCD CloudAPI uses ``orgVdcId`` (flat field) for edge clusters,
+        unlike edge gateways which use ``orgVdc.id`` (nested). This is a VCD API quirk.
+        """
+        params = {"filter": f"(orgVdcId=={vdc_id})"}
+        items = await self._get_paginated("/cloudapi/1.0.0/edgeClusters", params=params)
+        clusters: list[dict] = []
+        for rec in items:
+            clusters.append(
+                {
+                    "name": rec.get("name", ""),
+                    "id": rec.get("id", ""),
+                }
+            )
+        return clusters
+
     @cached(prefix="vcd:extnet", ttl=_CACHE_TTL)
     async def get_external_networks(self) -> list[dict]:
         items = await self._get_paginated("/cloudapi/1.0.0/externalNetworks")

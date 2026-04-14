@@ -13,6 +13,9 @@ resource "vcd_nsxt_edgegateway" "{{ edge.name | slug }}" {
   owner_id                  = data.vcd_org_vdc.{{ vdc.name | slug }}_for_edge.id
   external_network_id       = data.vcd_external_network_v2.{{ edge.external_network_name | slug }}.id
   dedicate_external_network = {{ edge.dedicate_external_network | default(false) | lower }}
+{% if edge.edge_cluster_id %}
+  edge_cluster_id           = "{{ edge.edge_cluster_id | hcl_escape }}"
+{% endif %}
 {% if edge.description %}
   description               = "{{ edge.description | hcl_escape }}"
 {% endif %}
