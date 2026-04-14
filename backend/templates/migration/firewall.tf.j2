@@ -1,0 +1,25 @@
+{% set user_rules = firewall.rules | selectattr('is_system', 'false') | list %}
+{% if user_rules %}
+resource "vcd_nsxt_firewall" "migrated" {
+  org             = var.target_org
+  edge_gateway_id = var.target_edge_id
+
+{% for rule in user_rules %}
+  rule {
+    name        = "{{ rule.name | hcl_escape }}"
+    direction   = "IN_OUT"
+    ip_protocol = "IPV4"
+    action      = "{{ rule.action }}"
+    enabled     = {{ rule.enabled | lower }}
+    logging     = {{ rule.logging | lower }}
+{% if rule._source_ip_set_name %}
+    source_ids  = [vcd_nsxt_ip_set.{{ rule._source_ip_set_name }}.id]
+{% endif %}
+{% if rule._dest_ip_set_name %}
+    destination_ids = [vcd_nsxt_ip_set.{{ rule._dest_ip_set_name }}.id]
+{% endif %}
+  }
+
+{% endfor %}
+}
+{% endif %}

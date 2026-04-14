@@ -1,0 +1,10 @@
+{% for ip_set in ip_sets %}
+resource "vcd_nsxt_ip_set" "{{ ip_set.name }}" {
+  org             = var.target_org
+  edge_gateway_id = var.target_edge_id
+  name            = "{{ ip_set.display_name | hcl_escape }}"
+  description     = "Migrated from VCD 10.4, used by rules: {{ ip_set.used_by | map(attribute='rule_id') | join(', ') }}"
+  ip_addresses    = [{{ ip_set.ip_addresses | map('tojson') | join(', ') }}]
+}
+
+{% endfor %}

@@ -1,0 +1,31 @@
+{% for rule in nat.rules if rule.enabled %}
+resource "vcd_nsxt_nat_rule" "rule_{{ rule.original_id }}" {
+  org               = var.target_org
+  edge_gateway_id   = var.target_edge_id
+  name              = "{{ (rule.description or 'rule_' + rule.original_id) | hcl_escape }}"
+  rule_type         = "{{ rule.action }}"
+{% if rule.action == 'DNAT' %}
+  external_address  = "{{ rule.original_address }}"
+  internal_address  = "{{ rule.translated_address }}"
+{% else %}
+  external_address  = "{{ rule.translated_address }}"
+  internal_address  = "{{ rule.original_address }}"
+{% endif %}
+{% if rule.action == 'DNAT' and rule.translated_port and rule.translated_port != 'any' %}
+  dnat_external_port = "{{ rule.original_port }}"
+{% endif %}
+{% if rule.needs_app_port_profile %}
+{% if rule.is_system_profile %}
+  app_port_profile_id = data.vcd_nsxt_app_port_profile.{{ rule.app_port_profile_key | slug }}.id
+{% else %}
+  app_port_profile_id = resource.vcd_nsxt_app_port_profile.{{ rule.app_port_profile_key | slug }}.id
+{% endif %}
+{% endif %}
+  logging           = {{ rule.logging | lower }}
+  enabled           = {{ rule.enabled | lower }}
+{% if rule.description %}
+  description       = "{{ rule.description | hcl_escape }}"
+{% endif %}
+}
+
+{% endfor %}

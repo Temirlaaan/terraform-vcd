@@ -1,0 +1,22 @@
+{% for prof in nat.required_app_port_profiles %}
+{% if prof.is_system_defined %}
+data "vcd_nsxt_app_port_profile" "{{ prof.key | slug }}" {
+  name  = "{{ prof.system_defined_name }}"
+  scope = "SYSTEM"
+}
+{% else %}
+resource "vcd_nsxt_app_port_profile" "{{ prof.key | slug }}" {
+  name        = "{{ prof.custom_name | hcl_escape }}"
+  scope       = "TENANT"
+  org         = var.target_org
+  context_id  = var.target_edge_id
+  description = "Migrated from VCD 10.4, used by rules: {{ prof.used_by_rule_ids | join(', ') }}"
+
+  app_port {
+    protocol = "{{ prof.protocol }}"
+    port     = ["{{ prof.ports }}"]
+  }
+}
+{% endif %}
+
+{% endfor %}
