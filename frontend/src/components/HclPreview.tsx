@@ -287,7 +287,7 @@ function generateHcl(state: {
 /*  Syntax colouring (lightweight, no external lib)                   */
 /* ------------------------------------------------------------------ */
 
-function tokenizeLine(line: string): React.ReactNode {
+export function tokenizeLine(line: string): React.ReactNode {
   // HCL keyword at start of line
   if (/^\s*(resource|provider|variable|terraform|backend|data|output|locals|module)\b/.test(line)) {
     return colourKeywordLine(line);

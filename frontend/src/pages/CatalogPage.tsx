@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Building2, HardDrive, Network, Wifi, Server, ArrowRight } from "lucide-react";
+import { Building2, HardDrive, Network, Wifi, Server, ArrowLeftRight, ArrowRight } from "lucide-react";
 import { cn } from "@/utils/cn";
 
 interface CatalogCard {
@@ -27,6 +27,14 @@ const cards: CatalogCard[] = [
     icons: [Network, Wifi],
     badge: "Networking",
     disabled: true,
+  },
+  {
+    title: "Edge Migration (NSX-V → NSX-T)",
+    description:
+      "Migrate firewall rules, NAT rules, and static routes from a legacy NSX-V edge gateway to NSX-T.",
+    icons: [ArrowLeftRight],
+    badge: "Migration",
+    to: "/migration",
   },
   {
     title: "Full Stack (Org → VM)",

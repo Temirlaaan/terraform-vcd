@@ -4,6 +4,7 @@ import {
   Terminal as TerminalIcon,
   LogOut,
   LayoutGrid,
+  ArrowLeftRight,
   FolderOpen,
   Settings,
 } from "lucide-react";
@@ -95,6 +96,7 @@ function TopBar() {
 
 const navItems = [
   { to: "/", icon: LayoutGrid, label: "Service Catalog", end: true },
+  { to: "/migration", icon: ArrowLeftRight, label: "Migration" },
   { to: "/deployments", icon: FolderOpen, label: "My Deployments" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ] as const;
