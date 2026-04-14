@@ -9,7 +9,7 @@ commonly use self-signed certificates.
 """
 
 import logging
-import time
+from time import monotonic
 
 import httpx
 
@@ -27,11 +27,13 @@ class LegacyVcdFetcher:
         user: str,
         password: str,
         api_version: str = "36.3",
+        verify_ssl: bool = False,
     ) -> None:
         self._base = host.rstrip("/")
         self._user = user
         self._password = password
         self._api_version = api_version
+        self._verify_ssl = verify_ssl
         self._bearer_token: str | None = None
         self._token_expires_at: float = 0
 
@@ -55,7 +57,7 @@ class LegacyVcdFetcher:
         login_url = f"{self._base}/cloudapi/1.0.0/sessions/provider"
 
         logger.info("Logging in to legacy VCD at %s", self._base)
-        async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
+        async with httpx.AsyncClient(verify=self._verify_ssl, timeout=30.0) as client:
             resp = await client.post(
                 login_url,
                 auth=(self._user, self._password),
@@ -70,12 +72,12 @@ class LegacyVcdFetcher:
             )
 
         self._bearer_token = token
-        self._token_expires_at = time.time() + _SESSION_TTL
+        self._token_expires_at = monotonic() + _SESSION_TTL
         logger.info("Legacy VCD login successful")
 
     async def _ensure_authenticated(self) -> None:
         """Login if token is missing or expired."""
-        if not self._bearer_token or time.time() >= self._token_expires_at:
+        if not self._bearer_token or monotonic() >= self._token_expires_at:
             await self.login()
 
     async def _get_xml(self, path: str) -> str:
@@ -88,7 +90,7 @@ class LegacyVcdFetcher:
         """
         url = f"{self._base}{path}"
 
-        async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
+        async with httpx.AsyncClient(verify=self._verify_ssl, timeout=30.0) as client:
             logger.debug("Legacy VCD GET %s", url)
             resp = await client.get(url, headers=self._headers())
 

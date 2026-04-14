@@ -7,6 +7,7 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 
 from app.api.routes.metadata import router as metadata_router
+from app.api.routes.migration import router as migration_router
 from app.api.routes.terraform import router as terraform_router
 from app.api.routes.ws import router as ws_router
 from app.config import settings
@@ -38,6 +39,7 @@ app.add_middleware(
 
 app.include_router(terraform_router, prefix="/api/v1")
 app.include_router(metadata_router, prefix="/api/v1")
+app.include_router(migration_router, prefix="/api/v1")
 app.include_router(ws_router)
 
 

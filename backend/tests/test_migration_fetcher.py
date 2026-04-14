@@ -1,6 +1,6 @@
 """Tests for app.migration.fetcher — legacy VCD 10.4 XML fetcher."""
 
-import time
+from time import monotonic
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -90,6 +90,14 @@ class TestLegacyVcdFetcherInit:
     def test_initial_token_is_none(self):
         f = LegacyVcdFetcher("https://vcd.test", "u", "p")
         assert f._bearer_token is None
+
+    def test_default_verify_ssl_false(self):
+        f = LegacyVcdFetcher("https://vcd.test", "u", "p")
+        assert f._verify_ssl is False
+
+    def test_custom_verify_ssl(self):
+        f = LegacyVcdFetcher("https://vcd.test", "u", "p", verify_ssl=True)
+        assert f._verify_ssl is True
 
 
 # -----------------------------------------------------------------------
@@ -188,7 +196,7 @@ class TestLegacyVcdFetcherLogin:
         mock_client = _make_async_client()
         mock_client.post = AsyncMock(return_value=login_resp)
 
-        before = time.time()
+        before = monotonic()
         with patch("app.migration.fetcher.httpx.AsyncClient", return_value=mock_client):
             await fetcher.login()
 
@@ -212,7 +220,7 @@ class TestLegacyVcdFetcherLogin:
 class TestLegacyVcdFetcherGetXml:
     async def test_get_xml_returns_text(self, fetcher):
         fetcher._bearer_token = "tok"
-        fetcher._token_expires_at = time.time() + 1000
+        fetcher._token_expires_at = monotonic() + 1000
 
         xml_resp = _make_response(text="<firewall><enabled>true</enabled></firewall>")
         mock_client = _make_async_client()
@@ -225,7 +233,7 @@ class TestLegacyVcdFetcherGetXml:
 
     async def test_get_xml_constructs_full_url(self, fetcher):
         fetcher._bearer_token = "tok"
-        fetcher._token_expires_at = time.time() + 1000
+        fetcher._token_expires_at = monotonic() + 1000
 
         mock_client = _make_async_client()
 
@@ -238,7 +246,7 @@ class TestLegacyVcdFetcherGetXml:
 
     async def test_get_xml_raises_on_error(self, fetcher):
         fetcher._bearer_token = "tok"
-        fetcher._token_expires_at = time.time() + 1000
+        fetcher._token_expires_at = monotonic() + 1000
 
         error_resp = _make_response(status_code=404)
         mock_client = _make_async_client()
@@ -250,7 +258,7 @@ class TestLegacyVcdFetcherGetXml:
 
     async def test_get_xml_retry_on_401(self, fetcher):
         fetcher._bearer_token = "old-tok"
-        fetcher._token_expires_at = time.time() + 1000
+        fetcher._token_expires_at = monotonic() + 1000
 
         # First GET returns 401, login refreshes, second GET succeeds
         resp_401 = _make_response(status_code=401)
@@ -278,7 +286,7 @@ class TestLegacyVcdFetcherGetXml:
 class TestLegacyVcdFetcherFetchEdgeSnapshot:
     async def test_returns_four_xml_keys(self, fetcher):
         fetcher._bearer_token = "tok"
-        fetcher._token_expires_at = time.time() + 1000
+        fetcher._token_expires_at = monotonic() + 1000
 
         mock_client = _make_async_client()
         mock_client.get = AsyncMock(return_value=_make_response(text="<xml/>"))
@@ -295,7 +303,7 @@ class TestLegacyVcdFetcherFetchEdgeSnapshot:
 
     async def test_correct_endpoint_paths(self, fetcher):
         fetcher._bearer_token = "tok"
-        fetcher._token_expires_at = time.time() + 1000
+        fetcher._token_expires_at = monotonic() + 1000
 
         mock_client = _make_async_client()
         mock_client.get = AsyncMock(return_value=_make_response(text="<xml/>"))
@@ -332,7 +340,7 @@ class TestLegacyVcdFetcherFetchEdgeSnapshot:
 
     async def test_all_values_are_strings(self, fetcher):
         fetcher._bearer_token = "tok"
-        fetcher._token_expires_at = time.time() + 1000
+        fetcher._token_expires_at = monotonic() + 1000
 
         mock_client = _make_async_client()
         mock_client.get = AsyncMock(return_value=_make_response(text="<test/>"))
@@ -346,7 +354,7 @@ class TestLegacyVcdFetcherFetchEdgeSnapshot:
 
     async def test_ssl_verification_disabled(self, fetcher):
         fetcher._bearer_token = "tok"
-        fetcher._token_expires_at = time.time() + 1000
+        fetcher._token_expires_at = monotonic() + 1000
 
         with patch("app.migration.fetcher.httpx.AsyncClient") as MockClient:
             mock_instance = _make_async_client()
