@@ -174,18 +174,18 @@ class VCDClient:
 
     @cached(prefix="vcd:vdcs", ttl=_CACHE_TTL)
     async def get_vdcs(self, org_name: str | None = None) -> list[dict]:
-        params = {}
-        if org_name:
-            params["filter"] = f"(orgName=={org_name})"
-        items = await self._get_paginated("/cloudapi/1.0.0/vdcs", params=params)
+        items = await self._get_paginated("/cloudapi/1.0.0/vdcs")
         vdcs: list[dict] = []
         for rec in items:
             org = rec.get("org", {})
+            rec_org_name = org.get("name", "")
+            if org_name and rec_org_name != org_name:
+                continue
             vdcs.append(
                 {
                     "name": rec.get("name", ""),
                     "id": rec.get("id", ""),
-                    "org_name": org.get("name", ""),
+                    "org_name": rec_org_name,
                     "allocation_model": rec.get("allocationModel"),
                     "is_enabled": rec.get("isEnabled", True),
                 }
@@ -199,7 +199,7 @@ class VCDClient:
         params = {}
         filters = []
         if org_name:
-            filters.append(f"orgName=={org_name}")
+            filters.append(f"orgRef.name=={org_name}")
         if vdc_name:
             filters.append(f"orgVdc.name=={vdc_name}")
         if filters:
@@ -217,6 +217,14 @@ class VCDClient:
                 }
             )
         return edges
+
+    async def _resolve_org_name(self, org_id: str) -> str | None:
+        """Resolve an org URN ID to its name via the cached org list."""
+        orgs = await self.get_organizations()
+        for o in orgs:
+            if o["id"] == org_id:
+                return o["name"]
+        return None
 
     async def _resolve_pvdc_id(self, pvdc_name: str) -> str | None:
         """Resolve a Provider VDC name to its URN/ID via the cached list."""
@@ -251,30 +259,22 @@ class VCDClient:
 
     @cached(prefix="vcd:netpools", ttl=_CACHE_TTL)
     async def get_network_pools(self, pvdc: str | None = None) -> list[dict]:
-        """Return network pools via VCD Query API.
+        """Return network pools via CloudAPI networkPoolSummaries.
 
-        The CloudAPI ``/networkPools`` endpoint is not available on all VCD
-        versions, so we use the legacy Query API which is universally supported.
+        The ``pvdc`` parameter is accepted for API compatibility but ignored —
+        network pools are bound to vCenter, not to Provider VDCs, so CloudAPI
+        does not support filtering by PVDC.  All pools are returned.
         """
-        params: dict = {
-            "type": "networkPool",
-            "format": "records",
-            "pageSize": "128",
-        }
-        data = await self._get(
-            "/api/query",
-            params=params,
-            headers={"Accept": f"application/*+json;version={self._api_version}"},
+        items = await self._get_paginated(
+            "/cloudapi/1.0.0/networkPools/networkPoolSummaries"
         )
-
         pools: list[dict] = []
-        records = data.get("record", []) if isinstance(data, dict) else []
-        for rec in records:
+        for rec in items:
             pools.append(
                 {
                     "name": rec.get("name", ""),
-                    "id": rec.get("href", ""),
-                    "poolType": str(rec.get("networkPoolType", "")),
+                    "id": rec.get("id", ""),
+                    "poolType": rec.get("poolType", ""),
                     "description": rec.get("description"),
                 }
             )
@@ -282,18 +282,17 @@ class VCDClient:
 
     @cached(prefix="vcd:vdcs_by_org", ttl=_CACHE_TTL)
     async def get_vdcs_by_org_id(self, org_id: str) -> list[dict]:
-        """Return VDCs filtered by org URN ID."""
-        params = {"filter": f"(org=={org_id})"}
-        items = await self._get_paginated("/cloudapi/1.0.0/vdcs", params=params)
-        vdcs: list[dict] = []
-        for rec in items:
-            vdcs.append(
-                {
-                    "name": rec.get("name", ""),
-                    "id": rec.get("id", ""),
-                }
-            )
-        return vdcs
+        """Return VDCs filtered by org URN ID.
+
+        VCD CloudAPI does not support FIQL filtering on the /vdcs endpoint
+        for org fields, so we resolve org_id → org_name and filter client-side.
+        """
+        org_name = await self._resolve_org_name(org_id)
+        if org_name is None:
+            logger.warning("Org '%s' not found, returning empty VDCs", org_id)
+            return []
+        all_vdcs = await self.get_vdcs(org_name=org_name)
+        return [{"name": v["name"], "id": v["id"]} for v in all_vdcs]
 
     @cached(prefix="vcd:edges_by_vdc", ttl=_CACHE_TTL)
     async def get_edge_gateways_by_vdc_id(self, vdc_id: str) -> list[dict]:
@@ -310,15 +309,31 @@ class VCDClient:
             )
         return edges
 
+    @cached(prefix="vcd:edges_by_owner", ttl=_CACHE_TTL)
+    async def get_edge_gateways_by_owner_id(self, owner_id: str) -> list[dict]:
+        """Return Edge Gateways filtered by ownerRef.id (supports VDC Group edges)."""
+        params = {"filter": f"(ownerRef.id=={owner_id})"}
+        items = await self._get_paginated("/cloudapi/1.0.0/edgeGateways", params=params)
+        edges: list[dict] = []
+        for rec in items:
+            edges.append(
+                {
+                    "name": rec.get("name", ""),
+                    "id": rec.get("id", ""),
+                }
+            )
+        return edges
+
     @cached(prefix="vcd:edge_clusters", ttl=_CACHE_TTL)
     async def get_edge_clusters(self, vdc_id: str) -> list[dict]:
         """Return NSX-T Edge Clusters available to a VDC.
 
-        NOTE: VCD CloudAPI uses ``orgVdcId`` (flat field) for edge clusters,
-        unlike edge gateways which use ``orgVdc.id`` (nested). This is a VCD API quirk.
+        Uses the ``/edgeClusters`` endpoint with ``orgVdcId`` FIQL filter.
         """
         params = {"filter": f"(orgVdcId=={vdc_id})"}
-        items = await self._get_paginated("/cloudapi/1.0.0/edgeClusters", params=params)
+        items = await self._get_paginated(
+            "/cloudapi/1.0.0/edgeClusters", params=params
+        )
         clusters: list[dict] = []
         for rec in items:
             clusters.append(
