@@ -45,30 +45,45 @@ class LegacyVcdFetcher:
         }
 
     async def login(self) -> None:
-        """Authenticate via POST /cloudapi/1.0.0/sessions/provider.
+        """Authenticate via POST /api/sessions (legacy VCD API).
 
-        Uses HTTP Basic Auth (user:password). The bearer token is returned
-        in the ``x-vmware-vcloud-access-token`` response header.
+        Uses HTTP Basic Auth (user:password). The session token is returned
+        in the ``x-vcloud-authorization`` response header (legacy) or
+        ``x-vmware-vcloud-access-token`` (newer VCD versions).
 
         Raises:
             httpx.HTTPStatusError: If login fails (401, 403, etc.)
             ValueError: If the response does not contain a token.
         """
-        login_url = f"{self._base}/cloudapi/1.0.0/sessions/provider"
+        login_url = f"{self._base}/api/sessions"
 
-        logger.info("Logging in to legacy VCD at %s", self._base)
+        logger.info(
+            "Logging in to legacy VCD at %s as '%s' (user_len=%d, pass_len=%d)",
+            self._base, self._user, len(self._user), len(self._password),
+        )
         async with httpx.AsyncClient(verify=self._verify_ssl, timeout=30.0) as client:
             resp = await client.post(
                 login_url,
                 auth=(self._user, self._password),
-                headers={"Accept": "application/json"},
+                headers={"Accept": f"application/*+xml;version={self._api_version}"},
             )
+            if resp.status_code >= 400:
+                logger.error(
+                    "Legacy VCD login failed: status=%d body=%s",
+                    resp.status_code, resp.text[:1000],
+                )
             resp.raise_for_status()
 
-        token = resp.headers.get("x-vmware-vcloud-access-token")
+        # Try both header names — legacy VCD uses x-vcloud-authorization,
+        # newer versions use x-vmware-vcloud-access-token
+        token = (
+            resp.headers.get("x-vmware-vcloud-access-token")
+            or resp.headers.get("x-vcloud-authorization")
+        )
         if not token:
             raise ValueError(
-                "Legacy VCD login succeeded but no token in response headers"
+                "Legacy VCD login succeeded but no token in response headers. "
+                f"Available headers: {list(resp.headers.keys())}"
             )
 
         self._bearer_token = token

@@ -152,7 +152,7 @@ class TestLegacyVcdFetcherLogin:
 
         call_args = mock_client.post.call_args
         url = call_args[0][0] if call_args[0] else call_args[1]["url"]
-        assert url == "https://vcd01.t-cloud.kz/cloudapi/1.0.0/sessions/provider"
+        assert url == "https://vcd01.t-cloud.kz/api/sessions"
 
     async def test_login_sends_basic_auth(self, fetcher):
         login_resp = _make_response(
@@ -167,7 +167,7 @@ class TestLegacyVcdFetcherLogin:
         call_kwargs = mock_client.post.call_args[1]
         assert call_kwargs.get("auth") == ("admin@System", "secret")
 
-    async def test_login_accept_header_json(self, fetcher):
+    async def test_login_accept_header_xml_with_version(self, fetcher):
         login_resp = _make_response(
             headers={"x-vmware-vcloud-access-token": "tok"}
         )
@@ -178,7 +178,20 @@ class TestLegacyVcdFetcherLogin:
             await fetcher.login()
 
         call_kwargs = mock_client.post.call_args[1]
-        assert call_kwargs["headers"]["Accept"] == "application/json"
+        assert call_kwargs["headers"]["Accept"] == "application/*+xml;version=36.3"
+
+    async def test_login_extracts_legacy_token_header(self, fetcher):
+        """Fallback to x-vcloud-authorization header for older VCD."""
+        login_resp = _make_response(
+            headers={"x-vcloud-authorization": "legacy-token-456"}
+        )
+        mock_client = _make_async_client()
+        mock_client.post = AsyncMock(return_value=login_resp)
+
+        with patch("app.migration.fetcher.httpx.AsyncClient", return_value=mock_client):
+            await fetcher.login()
+
+        assert fetcher._bearer_token == "legacy-token-456"
 
     async def test_login_failure_raises(self, fetcher):
         login_resp = _make_response(status_code=401)
