@@ -122,6 +122,7 @@ async def generate_migration_hcl(
             normalized,
             target_org=body.target_org,
             target_vdc=body.target_vdc,
+            target_vdc_id=body.target_vdc_id,
             target_edge_id=body.target_edge_id,
         )
     except Exception as exc:

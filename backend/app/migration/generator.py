@@ -284,6 +284,7 @@ class MigrationHCLGenerator:
         target_org: str,
         target_vdc: str,
         target_edge_id: str,
+        target_vdc_id: str = "",
     ) -> str:
         """Generate complete migration HCL.
 
@@ -292,6 +293,7 @@ class MigrationHCLGenerator:
             target_org: target organization name in VCD 10.6
             target_vdc: target VDC name
             target_edge_id: target NSX-T edge gateway URN
+            target_vdc_id: target VDC URN (for TENANT-scope app port profiles)
 
         Returns:
             Combined HCL string with all migration resources.
@@ -333,6 +335,7 @@ class MigrationHCLGenerator:
         ctx: dict[str, Any] = {
             "target_org_name": target_org,
             "target_vdc_name": target_vdc,
+            "target_vdc_id": target_vdc_id,
             "target_edge_id": target_edge_id,
             "firewall": firewall,
             "nat": nat,

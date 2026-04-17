@@ -9,7 +9,7 @@ resource "vcd_nsxt_app_port_profile" "{{ prof.key | slug }}" {
   name        = "{{ prof.custom_name | hcl_escape }}"
   scope       = "TENANT"
   org         = var.target_org
-  context_id  = var.target_edge_id
+  context_id  = var.target_vdc_id
   description = "Migrated from VCD 10.4, used by rules: {{ prof.used_by_rule_ids | join(', ') }}"
 
   app_port {

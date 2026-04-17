@@ -7,6 +7,7 @@ export interface MigrationRequest {
   edge_uuid: string;
   target_org: string;
   target_vdc: string;
+  target_vdc_id: string;
   target_edge_id: string;
   verify_ssl: boolean;
 }

@@ -77,6 +77,7 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
       edge_uuid: edgeUuid,
       target_org: selectedOrgName,
       target_vdc: selectedVdcName,
+      target_vdc_id: selectedVdcId,
       target_edge_id: targetEdgeId,
       verify_ssl: verifySsl,
     });

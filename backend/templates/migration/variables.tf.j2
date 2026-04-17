@@ -22,6 +22,11 @@ variable "target_vdc" {
   default = "{{ target_vdc_name | hcl_escape }}"
 }
 
+variable "target_vdc_id" {
+  type    = string
+  default = "{{ target_vdc_id | hcl_escape }}"
+}
+
 variable "target_edge_id" {
   type    = string
   default = "{{ target_edge_id | hcl_escape }}"

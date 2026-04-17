@@ -13,6 +13,7 @@ class MigrationRequest(BaseModel):
     edge_uuid: str = Field(..., min_length=1, description="NSX-V edge gateway UUID")
     target_org: str = Field(..., min_length=1, description="Target organization name in VCD 10.6")
     target_vdc: str = Field(..., min_length=1, description="Target VDC name")
+    target_vdc_id: str = Field(..., min_length=1, description="Target VDC URN")
     target_edge_id: str = Field(..., min_length=1, description="Target NSX-T edge gateway URN")
     verify_ssl: bool = Field(False, description="Verify SSL certificate of legacy VCD")
 
