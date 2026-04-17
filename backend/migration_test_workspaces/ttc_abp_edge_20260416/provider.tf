@@ -11,6 +11,7 @@ provider "vcd" {
   url                  = var.vcd_url
   user                 = var.vcd_user
   password             = var.vcd_password
+  sysorg               = "System"
   org                  = var.target_org
   allow_unverified_ssl = true
 }

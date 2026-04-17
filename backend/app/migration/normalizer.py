@@ -14,17 +14,7 @@ from defusedxml import ElementTree as ET
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROFILES: dict[str, str] = {
-    "tcp_80": "HTTP",
-    "tcp_443": "HTTPS",
-    "tcp_22": "SSH",
-    "udp_53": "DNS-UDP",
-    "tcp_53": "DNS",
-    "tcp_3389": "RDP",
-    "tcp_5060": "SIP",
-    "udp_5060": "SIP-UDP",
-    "icmp_any": "ICMP ALL",
-}
+SYSTEM_PROFILES: dict[str, str] = {}  # All profiles created as TENANT-scope resources
 
 _ACTION_MAP = {
     "accept": "ALLOW",
