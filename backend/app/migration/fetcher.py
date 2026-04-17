@@ -1,37 +1,35 @@
-"""Fetch raw XML config from a legacy VCD 10.4 NSX-V edge gateway.
+"""Fetch raw XML config from a legacy VCD NSX-V edge gateway.
 
-Connects to the legacy VCD provider API, authenticates via Basic Auth,
-and downloads edge gateway metadata, firewall, NAT, and routing configs
-as raw XML strings. These are then passed to normalizer.py for parsing.
+Connects to the legacy VCD API, authenticates via OAuth token exchange
+(``POST /oauth/provider/token``), and downloads edge gateway metadata,
+firewall, NAT, and routing configs as raw XML strings.  These are then
+passed to normalizer.py for parsing.
 
 SSL verification is disabled by default because legacy VCD instances
 commonly use self-signed certificates.
 """
 
 import logging
-from time import monotonic
+import time
+from urllib.parse import urlparse
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-_SESSION_TTL = 1800  # 30 minutes — typical VCD provider session lifetime
-
 
 class LegacyVcdFetcher:
-    """Fetches raw XML config from a legacy VCD 10.4 NSX-V edge gateway."""
+    """Fetches raw XML config from a legacy VCD NSX-V edge gateway."""
 
     def __init__(
         self,
         host: str,
-        user: str,
-        password: str,
+        api_token: str,
         api_version: str = "36.3",
         verify_ssl: bool = False,
     ) -> None:
         self._base = host.rstrip("/")
-        self._user = user
-        self._password = password
+        self._api_token = api_token
         self._api_version = api_version
         self._verify_ssl = verify_ssl
         self._bearer_token: str | None = None
@@ -45,54 +43,53 @@ class LegacyVcdFetcher:
         }
 
     async def login(self) -> None:
-        """Authenticate via POST /api/sessions (legacy VCD API).
+        """Exchange API refresh token for a short-lived Bearer token.
 
-        Uses HTTP Basic Auth (user:password). The session token is returned
-        in the ``x-vcloud-authorization`` response header (legacy) or
-        ``x-vmware-vcloud-access-token`` (newer VCD versions).
+        Uses the OAuth ``/oauth/provider/token`` endpoint with
+        ``grant_type=refresh_token``.  Mirrors the pattern in
+        ``vcd_client.py:_get_bearer_token()``.
 
         Raises:
-            httpx.HTTPStatusError: If login fails (401, 403, etc.)
-            ValueError: If the response does not contain a token.
+            httpx.HTTPStatusError: If token exchange fails.
+            ValueError: If the response does not contain an access_token.
         """
-        login_url = f"{self._base}/api/sessions"
+        parts = urlparse(self._base)
+        token_url = f"{parts.scheme}://{parts.netloc}/oauth/provider/token"
 
-        logger.info(
-            "Logging in to legacy VCD at %s as '%s' (user_len=%d, pass_len=%d)",
-            self._base, self._user, len(self._user), len(self._password),
-        )
+        logger.info("Exchanging API token at %s", token_url)
         async with httpx.AsyncClient(verify=self._verify_ssl, timeout=30.0) as client:
             resp = await client.post(
-                login_url,
-                auth=(self._user, self._password),
-                headers={"Accept": f"application/*+xml;version={self._api_version}"},
+                token_url,
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": self._api_token,
+                },
+                headers={"Accept": "application/json"},
             )
             if resp.status_code >= 400:
                 logger.error(
-                    "Legacy VCD login failed: status=%d body=%s",
-                    resp.status_code, resp.text[:1000],
+                    "Legacy VCD token exchange failed: status=%d body=%s",
+                    resp.status_code, resp.text[:500],
                 )
             resp.raise_for_status()
 
-        # Try both header names — legacy VCD uses x-vcloud-authorization,
-        # newer versions use x-vmware-vcloud-access-token
-        token = (
-            resp.headers.get("x-vmware-vcloud-access-token")
-            or resp.headers.get("x-vcloud-authorization")
-        )
-        if not token:
+        data = resp.json()
+        access_token = data.get("access_token")
+        if not access_token:
             raise ValueError(
-                "Legacy VCD login succeeded but no token in response headers. "
-                f"Available headers: {list(resp.headers.keys())}"
+                "Legacy VCD token exchange succeeded but no access_token in response"
             )
 
-        self._bearer_token = token
-        self._token_expires_at = monotonic() + _SESSION_TTL
-        logger.info("Legacy VCD login successful")
+        self._bearer_token = access_token
+        self._token_expires_at = time.time() + int(data.get("expires_in", 3600))
+        logger.info(
+            "Legacy VCD Bearer token obtained, expires in %ss",
+            data.get("expires_in"),
+        )
 
     async def _ensure_authenticated(self) -> None:
-        """Login if token is missing or expired."""
-        if not self._bearer_token or monotonic() >= self._token_expires_at:
+        """Login if token is missing or about to expire (5 min safety margin)."""
+        if not self._bearer_token or time.time() >= self._token_expires_at - 300:
             await self.login()
 
     async def _get_xml(self, path: str) -> str:

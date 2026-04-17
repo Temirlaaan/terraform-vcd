@@ -1,15 +1,33 @@
 """API routes for edge migration (NSX-V → NSX-T)."""
 
+import asyncio
 import logging
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.routes.terraform import _run_apply_task, _run_plan_task
 from app.auth import AuthenticatedUser, require_roles
+from app.core.locking import acquire_org_lock, get_org_lock_holder, release_org_lock
+from app.core.tf_workspace import TerraformWorkspace
+from app.database import get_db
 from app.migration.fetcher import LegacyVcdFetcher
 from app.migration.generator import MigrationHCLGenerator
 from app.migration.normalizer import normalize_edge_snapshot
-from app.schemas.migration import MigrationRequest, MigrationResponse, MigrationSummary
+from app.models.operation import Operation, OperationStatus, OperationType
+from app.schemas.migration import (
+    MigrationApplyRequest,
+    MigrationPlanRequest,
+    MigrationPlanResponse,
+    MigrationRequest,
+    MigrationResponse,
+    MigrationSummary,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +78,7 @@ async def generate_migration_hcl(
     # 1. Fetch raw XML from legacy VCD
     fetcher = LegacyVcdFetcher(
         host=body.host,
-        user=body.user,
-        password=body.password,
+        api_token=body.api_token,
         verify_ssl=body.verify_ssl,
     )
     try:
@@ -124,3 +141,156 @@ async def generate_migration_hcl(
     )
 
     return MigrationResponse(hcl=hcl, edge_name=edge_name, summary=summary)
+
+
+# ------------------------------------------------------------------
+#  Plan / Apply for migration HCL
+# ------------------------------------------------------------------
+
+_PROVIDER_TF = (
+    Path(__file__).resolve().parent.parent.parent.parent
+    / "templates" / "migration" / "provider.tf.j2"
+).read_text(encoding="utf-8")
+
+
+def _create_migration_workspace(
+    org_name: str, operation_id: uuid.UUID, hcl: str,
+) -> TerraformWorkspace:
+    """Create a workspace and write pre-generated HCL + provider config."""
+    workspace = TerraformWorkspace(org_name, operation_id)
+    workspace.work_dir.mkdir(parents=True, exist_ok=True)
+    (workspace.work_dir / "main.tf").write_text(hcl, encoding="utf-8")
+    (workspace.work_dir / "provider.tf").write_text(_PROVIDER_TF, encoding="utf-8")
+    return workspace
+
+
+@router.post("/plan", response_model=MigrationPlanResponse)
+async def migration_plan(
+    body: MigrationPlanRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AuthenticatedUser = Depends(require_roles("tf-admin", "tf-operator")),
+) -> MigrationPlanResponse:
+    """Write pre-generated HCL to workspace and run terraform init + plan.
+
+    Returns the operation_id immediately so the frontend can connect
+    a WebSocket before terraform output begins streaming.
+    """
+    org_name = body.target_org
+    operation_id = uuid.uuid4()
+
+    logger.info(
+        "user=%s action=migration_plan org=%s operation_id=%s",
+        user.username, org_name, operation_id,
+    )
+
+    # --- Acquire distributed lock ---
+    locked = await acquire_org_lock(org_name, str(operation_id))
+    if not locked:
+        holder = await get_org_lock_holder(org_name)
+        logger.warning(
+            "Org %s locked by %s, rejecting migration plan from %s",
+            org_name, holder, user.username,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Organisation '{org_name}' is locked by operation {holder}. "
+                "Wait for it to finish or release the lock."
+            ),
+        )
+
+    # --- Create DB record ---
+    operation = Operation(
+        id=operation_id,
+        type=OperationType.PLAN,
+        status=OperationStatus.RUNNING,
+        user_id=user.sub,
+        username=user.username,
+        target_org=org_name,
+    )
+    db.add(operation)
+    await db.commit()
+
+    # --- Prepare workspace with raw HCL ---
+    try:
+        workspace = _create_migration_workspace(org_name, operation_id, body.hcl)
+    except Exception as exc:
+        logger.exception("Failed to create migration workspace for plan %s", operation_id)
+        operation.status = OperationStatus.FAILED
+        operation.error_message = str(exc)
+        operation.completed_at = datetime.now(timezone.utc)
+        await db.commit()
+        await release_org_lock(org_name, str(operation_id))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create workspace for operation {operation_id}.",
+        )
+
+    # --- Launch background task (reuse from terraform.py) ---
+    asyncio.create_task(_run_plan_task(operation_id, org_name, workspace))
+    return MigrationPlanResponse(operation_id=operation_id)
+
+
+@router.post("/apply", response_model=MigrationPlanResponse)
+async def migration_apply(
+    body: MigrationApplyRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AuthenticatedUser = Depends(require_roles("tf-admin", "tf-operator")),
+) -> MigrationPlanResponse:
+    """Launch terraform apply for a previously successful migration plan.
+
+    Returns the operation_id immediately so the frontend can connect
+    a WebSocket before terraform output begins streaming.
+    """
+    # --- Fetch the plan operation ---
+    result = await db.execute(
+        select(Operation).where(Operation.id == body.operation_id)
+    )
+    plan_op = result.scalar_one_or_none()
+    if not plan_op:
+        raise HTTPException(status_code=404, detail="Plan operation not found")
+    if plan_op.status != OperationStatus.SUCCESS:
+        raise HTTPException(status_code=400, detail="Can only apply a successful plan")
+
+    org_name = plan_op.target_org
+    apply_id = uuid.uuid4()
+
+    logger.info(
+        "user=%s action=migration_apply org=%s plan_id=%s apply_id=%s",
+        user.username, org_name, body.operation_id, apply_id,
+    )
+
+    # --- Acquire distributed lock ---
+    locked = await acquire_org_lock(org_name, str(apply_id))
+    if not locked:
+        holder = await get_org_lock_holder(org_name)
+        logger.warning(
+            "Org %s locked by %s, rejecting migration apply from %s",
+            org_name, holder, user.username,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Organisation '{org_name}' is locked by operation {holder}. "
+                "Wait for it to finish or release the lock."
+            ),
+        )
+
+    # --- Create apply DB record ---
+    operation = Operation(
+        id=apply_id,
+        type=OperationType.APPLY,
+        status=OperationStatus.RUNNING,
+        user_id=user.sub,
+        username=user.username,
+        target_org=org_name,
+    )
+    db.add(operation)
+    await db.commit()
+
+    # Reuse the plan workspace (it still has plan.bin)
+    workspace = TerraformWorkspace(org_name, body.operation_id)
+
+    # --- Launch background task (reuse from terraform.py) ---
+    asyncio.create_task(_run_apply_task(apply_id, org_name, workspace))
+    return MigrationPlanResponse(operation_id=apply_id)

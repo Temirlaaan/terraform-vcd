@@ -1,4 +1,4 @@
-{% for prof in nat.required_app_port_profiles %}
+{% for prof in all_profiles %}
 {% if prof.is_system_defined %}
 data "vcd_nsxt_app_port_profile" "{{ prof.key | slug }}" {
   name  = "{{ prof.system_defined_name }}"
@@ -14,7 +14,9 @@ resource "vcd_nsxt_app_port_profile" "{{ prof.key | slug }}" {
 
   app_port {
     protocol = "{{ prof.protocol }}"
+{% if prof.protocol not in ['ICMPv4', 'ICMPv6'] %}
     port     = ["{{ prof.ports }}"]
+{% endif %}
   }
 }
 {% endif %}

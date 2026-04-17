@@ -31,7 +31,7 @@ _ACTION_MAP = {
     "deny": "DROP",
 }
 
-_SYSTEM_RULE_TYPES = {"internal_high", "default_policy"}
+_SYSTEM_RULE_TYPES = {"default_policy"}
 
 
 def _normalize_action(action: str) -> str:

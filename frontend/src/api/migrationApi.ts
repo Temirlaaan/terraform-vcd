@@ -3,8 +3,7 @@ import api from "./client";
 
 export interface MigrationRequest {
   host: string;
-  user: string;
-  password: string;
+  api_token: string;
   edge_uuid: string;
   target_org: string;
   target_vdc: string;
@@ -35,6 +34,44 @@ export function useMigrationGenerate() {
       const { data } = await api.post<MigrationResponse>(
         "/api/v1/migration/generate",
         req
+      );
+      return data;
+    },
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/*  Plan / Apply mutations                                             */
+/* ------------------------------------------------------------------ */
+
+interface MigrationPlanRequest {
+  hcl: string;
+  target_org: string;
+  target_edge_id: string;
+}
+
+interface MigrationOperationResponse {
+  operation_id: string;
+}
+
+export function useMigrationPlan() {
+  return useMutation({
+    mutationFn: async (req: MigrationPlanRequest) => {
+      const { data } = await api.post<MigrationOperationResponse>(
+        "/api/v1/migration/plan",
+        req
+      );
+      return data;
+    },
+  });
+}
+
+export function useMigrationApply() {
+  return useMutation({
+    mutationFn: async (operationId: string) => {
+      const { data } = await api.post<MigrationOperationResponse>(
+        "/api/v1/migration/apply",
+        { operation_id: operationId }
       );
       return data;
     },

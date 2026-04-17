@@ -16,8 +16,7 @@ interface MigrationFormProps {
 export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
   // Legacy VCD fields
   const [host, setHost] = useState("");
-  const [user, setUser] = useState("");
-  const [password, setPassword] = useState("");
+  const [apiToken, setApiToken] = useState("");
   const [edgeUuid, setEdgeUuid] = useState("");
 
   // Target selection — store both id and name where needed
@@ -65,7 +64,7 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
     setTargetEdgeId("");
   };
 
-  const hasLegacyConfig = host && user && password && edgeUuid;
+  const hasLegacyConfig = host && apiToken && edgeUuid;
   const hasTargetSelection = selectedOrgName && selectedVdcName && targetEdgeId;
   const canSubmit = hasLegacyConfig && hasTargetSelection;
 
@@ -74,8 +73,7 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
     if (!canSubmit || isLoading) return;
     onSubmit({
       host,
-      user,
-      password,
+      api_token: apiToken,
       edge_uuid: edgeUuid,
       target_org: selectedOrgName,
       target_vdc: selectedVdcName,
@@ -97,21 +95,19 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
           onChange={setHost}
           placeholder="https://vcd-legacy.example.com"
         />
-        <FormInput
-          label="Username"
-          value={user}
-          onChange={setUser}
-          placeholder="admin@system"
-        />
         <label className="block space-y-1">
-          <span className="text-xs font-medium text-clr-text-secondary">Password</span>
+          <span className="text-xs font-medium text-clr-text-secondary">API Token</span>
           <input
             type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            value={apiToken}
+            onChange={(e) => setApiToken(e.target.value)}
             placeholder="••••••••"
+            autoComplete="off"
             className="w-full rounded-sm bg-white border border-clr-border px-2.5 py-1.5 text-sm text-clr-text placeholder:text-clr-placeholder focus:border-clr-action focus:outline-none transition-colors"
           />
+          <span className="text-[10px] text-clr-text-secondary leading-tight block">
+            Generate via VCD UI: Administration → Access Control → Users → Generate API Access Token
+          </span>
         </label>
         <FormInput
           label="Edge Gateway UUID"

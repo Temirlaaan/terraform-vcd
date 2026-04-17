@@ -1,0 +1,6 @@
+vcd_url       = "https://vcd.example.com/api"
+vcd_user      = "administrator"
+vcd_password  = "CHANGE_ME"
+target_org    = "TTC"
+target_vdc    = "test-vdc-01"
+target_edge_id = "urn:vcloud:gateway:cf619cf8-8a59-48aa-bfaa-b316b714a271"

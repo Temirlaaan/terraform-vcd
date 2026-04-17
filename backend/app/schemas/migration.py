@@ -1,5 +1,7 @@
 """Pydantic schemas for the edge migration API."""
 
+import uuid
+
 from pydantic import BaseModel, Field
 
 
@@ -7,8 +9,7 @@ class MigrationRequest(BaseModel):
     """Request body for POST /api/v1/migration/generate."""
 
     host: str = Field(..., min_length=1, description="Legacy VCD host URL (e.g. https://vcd01.t-cloud.kz)")
-    user: str = Field(..., min_length=1, description="Provider admin username")
-    password: str = Field(..., min_length=1, description="Provider admin password")
+    api_token: str = Field(..., min_length=1, description="VCD API access token (generated via VCD UI)")
     edge_uuid: str = Field(..., min_length=1, description="NSX-V edge gateway UUID")
     target_org: str = Field(..., min_length=1, description="Target organization name in VCD 10.6")
     target_vdc: str = Field(..., min_length=1, description="Target VDC name")
@@ -35,3 +36,23 @@ class MigrationResponse(BaseModel):
     hcl: str
     edge_name: str
     summary: MigrationSummary
+
+
+class MigrationPlanRequest(BaseModel):
+    """Request body for POST /api/v1/migration/plan."""
+
+    hcl: str = Field(..., min_length=1, description="Pre-generated HCL from the Generate step")
+    target_org: str = Field(..., min_length=1, description="Target organization name (for locking)")
+    target_edge_id: str = Field(..., min_length=1, description="Target NSX-T edge gateway URN")
+
+
+class MigrationPlanResponse(BaseModel):
+    """Response body for POST /api/v1/migration/plan."""
+
+    operation_id: uuid.UUID
+
+
+class MigrationApplyRequest(BaseModel):
+    """Request body for POST /api/v1/migration/apply."""
+
+    operation_id: uuid.UUID = Field(..., description="Plan operation ID to apply")

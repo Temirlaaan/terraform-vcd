@@ -18,7 +18,7 @@ resource "vcd_nsxt_nat_rule" "rule_{{ rule.original_id }}" {
 {% if rule.is_system_profile %}
   app_port_profile_id = data.vcd_nsxt_app_port_profile.{{ rule.app_port_profile_key | slug }}.id
 {% else %}
-  app_port_profile_id = resource.vcd_nsxt_app_port_profile.{{ rule.app_port_profile_key | slug }}.id
+  app_port_profile_id = vcd_nsxt_app_port_profile.{{ rule.app_port_profile_key | slug }}.id
 {% endif %}
 {% endif %}
   logging           = {{ rule.logging | lower }}

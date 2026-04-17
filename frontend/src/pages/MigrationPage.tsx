@@ -1,8 +1,10 @@
+import { useRef } from "react";
 import { ArrowLeftRight, AlertCircle, FileCode2 } from "lucide-react";
-import { useMigrationGenerate } from "@/api/migrationApi";
+import { useMigrationGenerate, type MigrationRequest } from "@/api/migrationApi";
 import { MigrationForm } from "@/components/migration/MigrationForm";
 import { MigrationSummary } from "@/components/migration/MigrationSummary";
 import { MigrationHclPreview } from "@/components/migration/MigrationHclPreview";
+import { MigrationActionBar } from "@/components/migration/MigrationActionBar";
 import { isAxiosError } from "axios";
 
 function getErrorMessage(error: unknown): string {
@@ -19,6 +21,15 @@ function getErrorMessage(error: unknown): string {
 
 export function MigrationPage() {
   const mutation = useMigrationGenerate();
+  const lastSubmit = useRef({ target_org: "", target_edge_id: "" });
+
+  const handleSubmit = (data: MigrationRequest) => {
+    lastSubmit.current = {
+      target_org: data.target_org,
+      target_edge_id: data.target_edge_id,
+    };
+    mutation.mutate(data);
+  };
 
   return (
     <div className="flex flex-1 min-h-0">
@@ -38,7 +49,7 @@ export function MigrationPage() {
         {/* Form */}
         <div className="flex-1 overflow-y-auto">
           <MigrationForm
-            onSubmit={(data) => mutation.mutate(data)}
+            onSubmit={handleSubmit}
             isLoading={mutation.isPending}
           />
         </div>
@@ -65,6 +76,12 @@ export function MigrationPage() {
                 edgeName={mutation.data.edge_name}
               />
             </div>
+            {/* Action bar: Plan / Apply */}
+            <MigrationActionBar
+              hcl={mutation.data.hcl}
+              targetOrg={lastSubmit.current.target_org}
+              targetEdgeId={lastSubmit.current.target_edge_id}
+            />
             {/* HCL preview */}
             <div className="flex-1 min-h-0">
               <MigrationHclPreview

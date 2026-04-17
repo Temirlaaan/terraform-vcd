@@ -26,8 +26,7 @@ FAKE_XMLS = {
 
 VALID_REQUEST = {
     "host": "https://vcd01.t-cloud.kz",
-    "user": "admin@System",
-    "password": "secret",
+    "api_token": "test-api-token",
     "edge_uuid": "b6b3181a-2596-44c5-9991-c4c54c050bcb",
     "target_org": "TestOrg",
     "target_vdc": "TestVDC",
@@ -114,9 +113,9 @@ class TestMigrationGenerateEndpoint:
             resp = await client.post("/api/v1/migration/generate", json=VALID_REQUEST)
 
         summary = resp.json()["summary"]
-        assert summary["firewall_rules_total"] == 4  # 5 minus vse rule
-        assert summary["firewall_rules_user"] == 2
-        assert summary["firewall_rules_system"] == 2
+        assert summary["firewall_rules_total"] == 5  # 6 minus vse rule
+        assert summary["firewall_rules_user"] == 4  # internal_high is NOT system
+        assert summary["firewall_rules_system"] == 1  # only default_policy
         assert summary["nat_rules_total"] == 4
         assert summary["static_routes_total"] == 2
 
@@ -144,8 +143,7 @@ class TestMigrationGenerateEndpoint:
 
         MockCls.assert_called_once_with(
             host="https://vcd01.t-cloud.kz",
-            user="admin@System",
-            password="secret",
+            api_token="test-api-token",
             verify_ssl=False,
         )
         instance.fetch_edge_snapshot.assert_called_once_with(

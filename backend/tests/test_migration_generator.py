@@ -2,7 +2,15 @@
 
 import pytest
 
-from app.migration.generator import MigrationHCLGenerator, _collect_ip_sets, _enrich_nat_rules
+from app.migration.generator import (
+    MigrationHCLGenerator,
+    _collect_firewall_app_port_profiles,
+    _collect_ip_sets,
+    _enrich_nat_rules,
+    _merge_app_port_profiles,
+    _netmask_to_cidr,
+    _resolve_internal_networks,
+)
 from app.migration.normalizer import normalize_edge_snapshot
 
 # Reuse the same XML fixtures from normalizer tests
@@ -119,10 +127,10 @@ class TestCollectIpSets:
 
     def test_no_ip_set_for_system_rules(self, normalized):
         ip_sets = _collect_ip_sets(normalized["firewall"]["rules"])
-        # System rules (131073, 131076) should not generate IP sets
+        # default_policy rule (131076) should not generate IP sets
         for ip_set in ip_sets:
             for rule_ref in ip_set["used_by"]:
-                assert rule_ref["rule_id"] not in ("131073", "131076")
+                assert rule_ref["rule_id"] != "131076"
 
     def test_dedup_identical_ip_sets(self):
         """Rules with the same IP list should share one IP set."""
@@ -254,18 +262,21 @@ class TestMigrationHCLGeneratorFirewall:
 
     def test_user_rules_included(self, full_hcl):
         # Rule 135393 (user) should appear
-        assert "New Rule" in full_hcl or "135393" in full_hcl
+        assert "migrated_rule_135393" in full_hcl
 
-    def test_system_rules_excluded(self, full_hcl):
-        """System rules (internal_high, default_policy) should NOT appear in firewall rules."""
-        # The system rule name "firewall" (id 131073) should not be in a rule block
+    def test_default_policy_rules_excluded(self, full_hcl):
+        """default_policy rules should NOT appear in firewall rules."""
         lines = full_hcl.split("\n")
         in_firewall = False
         for line in lines:
             if 'resource "vcd_nsxt_firewall"' in line:
                 in_firewall = True
-            if in_firewall and "131073" in line:
-                pytest.fail("System rule 131073 should not appear in firewall HCL")
+            if in_firewall and "131076" in line:
+                pytest.fail("Default policy rule 131076 should not appear in firewall HCL")
+
+    def test_internal_high_rules_included(self, full_hcl):
+        """internal_high rules are user rules with a priority, not system rules."""
+        assert "131073" in full_hcl
 
     def test_source_ids_reference_ip_set(self, full_hcl):
         # Rule 135393 has source IPs → should reference IP set
@@ -279,7 +290,7 @@ class TestMigrationHCLGeneratorFirewall:
 
     def test_disabled_rule_included(self, full_hcl):
         # Rule 131075 is disabled but user type → should be in HCL with enabled=false
-        assert "disabled-rule" in full_hcl or "131075" in full_hcl
+        assert "migrated_131075_disabled_rule" in full_hcl
 
     def test_no_firewall_when_no_user_rules(self, generator):
         """No firewall block when all rules are system rules."""
@@ -289,7 +300,7 @@ class TestMigrationHCLGeneratorFirewall:
                 "default_action_source": "ALLOW",
                 "default_action_target": None,
                 "rules": [
-                    {"original_id": "1", "name": "sys", "rule_type": "internal_high",
+                    {"original_id": "1", "name": "sys", "rule_type": "default_policy",
                      "is_system": True, "enabled": True, "action": "ALLOW",
                      "logging": False, "source": {"ip_addresses": [], "grouping_object_ids": [],
                      "vnic_group_ids": [], "exclude": False},
@@ -358,8 +369,10 @@ class TestMigrationHCLGeneratorNat:
         assert "data.vcd_nsxt_app_port_profile." in full_hcl
 
     def test_app_port_profile_custom_reference(self, full_hcl):
-        # udp_9000-10999 is custom
-        assert "resource.vcd_nsxt_app_port_profile." in full_hcl
+        # udp_9000-10999 is custom — no "resource." prefix in HCL2
+        assert "vcd_nsxt_app_port_profile." in full_hcl
+        # Ensure invalid "resource." prefix is NOT used
+        assert "resource.vcd_nsxt_app_port_profile." not in full_hcl
 
     def test_no_app_port_profile_for_any_protocol(self, full_hcl):
         """SNAT rule with protocol=any should not have app_port_profile_id."""
@@ -433,6 +446,240 @@ class TestMigrationHCLGeneratorStaticRoutes:
         }
         hcl = generator.generate(normalized, "Org", "VDC", "urn:test")
         assert "vcd_nsxt_edgegateway_static_route" not in hcl
+
+
+# -----------------------------------------------------------------------
+#  Internal vnic_group_ids resolution
+# -----------------------------------------------------------------------
+
+
+class TestInternalVnicResolution:
+    def test_netmask_to_cidr(self):
+        assert _netmask_to_cidr("10.10.0.1", "255.255.255.0") == "10.10.0.0/24"
+        assert _netmask_to_cidr("172.16.5.1", "255.255.0.0") == "172.16.0.0/16"
+
+    def test_resolve_internal_networks(self):
+        edge_meta = {
+            "interfaces": [
+                {"type": "uplink", "name": "Internet", "subnets": [
+                    {"gateway": "37.208.43.1", "netmask": "255.255.255.0", "ip_address": "37.208.43.38"},
+                ]},
+                {"type": "internal", "name": "Internal-Net", "subnets": [
+                    {"gateway": "10.10.0.1", "netmask": "255.255.255.0", "ip_address": "10.10.0.1"},
+                ]},
+            ],
+        }
+        cidrs = _resolve_internal_networks(edge_meta)
+        assert cidrs == ["10.10.0.0/24"]
+
+    def test_collect_ip_sets_resolves_internal(self):
+        edge_meta = {
+            "interfaces": [
+                {"type": "internal", "name": "Net1", "subnets": [
+                    {"gateway": "10.10.0.1", "netmask": "255.255.255.0"},
+                ]},
+            ],
+        }
+        rules = [
+            {
+                "original_id": "100",
+                "is_system": False,
+                "source": {
+                    "ip_addresses": [],
+                    "vnic_group_ids": ["internal"],
+                    "grouping_object_ids": [],
+                    "exclude": False,
+                },
+                "destination": {
+                    "ip_addresses": [],
+                    "vnic_group_ids": [],
+                    "grouping_object_ids": [],
+                    "exclude": False,
+                },
+                "application": [],
+            },
+        ]
+        ip_sets = _collect_ip_sets(rules, edge_meta=edge_meta)
+        assert len(ip_sets) == 1
+        assert "10.10.0.0/24" in ip_sets[0]["ip_addresses"]
+        assert ip_sets[0]["display_name"] == "ipset_internal"
+
+    def test_internal_vnic_in_full_hcl(self, full_hcl):
+        """Rule 135500 uses vnicGroupId=internal → should produce IP set with 10.10.0.0/24."""
+        assert "10.10.0.0/24" in full_hcl
+
+    def test_unsupported_vnic_logs_warning(self, caplog):
+        rules = [
+            {
+                "original_id": "200",
+                "is_system": False,
+                "source": {
+                    "ip_addresses": [],
+                    "vnic_group_ids": ["external"],
+                    "grouping_object_ids": [],
+                    "exclude": False,
+                },
+                "destination": {
+                    "ip_addresses": [],
+                    "vnic_group_ids": [],
+                    "grouping_object_ids": [],
+                    "exclude": False,
+                },
+                "application": [],
+            },
+        ]
+        import logging
+        with caplog.at_level(logging.WARNING):
+            ip_sets = _collect_ip_sets(rules, edge_meta={"interfaces": []})
+        assert "unsupported vnicGroupId=external" in caplog.text
+        assert len(ip_sets) == 0
+
+
+# -----------------------------------------------------------------------
+#  Firewall app port profiles
+# -----------------------------------------------------------------------
+
+
+class TestFirewallAppPortProfiles:
+    def test_collect_profiles_from_firewall_rule(self):
+        rules = [
+            {
+                "original_id": "1",
+                "is_system": False,
+                "application": [{"protocol": "tcp", "port": "443"}],
+            },
+        ]
+        profiles, rule_map = _collect_firewall_app_port_profiles(rules)
+        assert len(profiles) == 1
+        assert profiles[0]["key"] == "tcp_443"
+        assert profiles[0]["is_system_defined"] is True
+        assert profiles[0]["system_defined_name"] == "HTTPS"
+        assert rule_map == {"1": ["tcp_443"]}
+
+    def test_multi_service_rule_produces_multiple_keys(self):
+        rules = [
+            {
+                "original_id": "1",
+                "is_system": False,
+                "application": [
+                    {"protocol": "tcp", "port": "80"},
+                    {"protocol": "tcp", "port": "443"},
+                ],
+            },
+        ]
+        profiles, rule_map = _collect_firewall_app_port_profiles(rules)
+        assert len(profiles) == 2
+        assert len(rule_map["1"]) == 2
+        assert "tcp_80" in rule_map["1"]
+        assert "tcp_443" in rule_map["1"]
+
+    def test_icmp_protocol_mapped(self):
+        rules = [
+            {
+                "original_id": "1",
+                "is_system": False,
+                "application": [{"protocol": "icmp"}],
+            },
+        ]
+        profiles, _ = _collect_firewall_app_port_profiles(rules)
+        assert len(profiles) == 1
+        assert profiles[0]["protocol"] == "ICMPv4"
+        assert profiles[0]["key"] == "icmp_any"
+        assert profiles[0]["is_system_defined"] is True
+
+    def test_custom_port_profile(self):
+        rules = [
+            {
+                "original_id": "1",
+                "is_system": False,
+                "application": [{"protocol": "tcp", "port": "8080"}],
+            },
+        ]
+        profiles, _ = _collect_firewall_app_port_profiles(rules)
+        assert len(profiles) == 1
+        assert profiles[0]["is_system_defined"] is False
+        assert profiles[0]["custom_name"] == "ttc_fw_tcp_8080"
+
+    def test_system_rules_skipped(self):
+        rules = [
+            {
+                "original_id": "1",
+                "is_system": True,
+                "application": [{"protocol": "tcp", "port": "443"}],
+            },
+        ]
+        profiles, rule_map = _collect_firewall_app_port_profiles(rules)
+        assert len(profiles) == 0
+        assert len(rule_map) == 0
+
+    def test_dedup_across_rules(self):
+        rules = [
+            {"original_id": "1", "is_system": False,
+             "application": [{"protocol": "tcp", "port": "443"}]},
+            {"original_id": "2", "is_system": False,
+             "application": [{"protocol": "tcp", "port": "443"}]},
+        ]
+        profiles, rule_map = _collect_firewall_app_port_profiles(rules)
+        assert len(profiles) == 1
+        assert "1" in profiles[0]["used_by_rule_ids"]
+        assert "2" in profiles[0]["used_by_rule_ids"]
+
+    def test_merge_profiles_dedup(self):
+        nat_profiles = [
+            {"key": "tcp_443", "protocol": "TCP", "ports": "443",
+             "is_system_defined": True, "system_defined_name": "HTTPS",
+             "custom_name": None, "used_by_rule_ids": ["nat_1"]},
+        ]
+        fw_profiles = [
+            {"key": "tcp_443", "protocol": "TCP", "ports": "443",
+             "is_system_defined": True, "system_defined_name": "HTTPS",
+             "custom_name": None, "used_by_rule_ids": ["fw_1"],
+             "source": "firewall"},
+        ]
+        merged = _merge_app_port_profiles(nat_profiles, fw_profiles)
+        assert len(merged) == 1
+        assert "nat_1" in merged[0]["used_by_rule_ids"]
+        assert "fw_1" in merged[0]["used_by_rule_ids"]
+
+
+class TestMigrationHCLGeneratorFirewallProfiles:
+    def test_firewall_rule_has_app_port_profile_ids(self, full_hcl):
+        """Rule 135393 has tcp/443 → should have app_port_profile_ids in firewall."""
+        assert "app_port_profile_ids" in full_hcl
+
+    def test_multi_service_rule_has_multiple_profile_ids(self, full_hcl):
+        """Rule 135500 has tcp/80 + tcp/443 → two entries in app_port_profile_ids."""
+        # Find the rule block for 135500 and check it has both profile references
+        lines = full_hcl.split("\n")
+        in_rule_block = False
+        profile_ids_found = []
+        for line in lines:
+            if "migrated_135500" in line:
+                in_rule_block = True
+            if in_rule_block and "app_port_profile" in line and ".id" in line:
+                profile_ids_found.append(line.strip())
+            if in_rule_block and line.strip() == "}":
+                break
+        assert len(profile_ids_found) >= 2
+
+
+# -----------------------------------------------------------------------
+#  Rule names
+# -----------------------------------------------------------------------
+
+
+class TestMigrationHCLGeneratorRuleNames:
+    def test_generic_name_uses_id_only(self, full_hcl):
+        """Rule with name='New Rule' should use migrated_rule_{id} format."""
+        assert "migrated_rule_135393" in full_hcl
+
+    def test_meaningful_name_slugified(self, full_hcl):
+        """Rule with meaningful name should include slugified name."""
+        assert "migrated_135500_internal_to_any" in full_hcl
+
+    def test_disabled_rule_name_slugified(self, full_hcl):
+        """Rule 131075 name='disabled-rule' should be slugified."""
+        assert "migrated_131075_disabled_rule" in full_hcl
 
 
 # -----------------------------------------------------------------------

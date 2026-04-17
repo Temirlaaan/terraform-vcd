@@ -94,6 +94,28 @@ FIREWALL_XML = """\
       <loggingEnabled>false</loggingEnabled>
       <action>deny</action>
     </firewallRule>
+    <firewallRule>
+      <id>135500</id>
+      <name>internal-to-any</name>
+      <ruleType>user</ruleType>
+      <enabled>true</enabled>
+      <loggingEnabled>false</loggingEnabled>
+      <action>accept</action>
+      <source>
+        <exclude>false</exclude>
+        <vnicGroupId>internal</vnicGroupId>
+      </source>
+      <application>
+        <service>
+          <protocol>tcp</protocol>
+          <port>80</port>
+        </service>
+        <service>
+          <protocol>tcp</protocol>
+          <port>443</port>
+        </service>
+      </application>
+    </firewallRule>
   </firewallRules>
 </firewall>
 """
@@ -247,8 +269,9 @@ class TestClassifyRuleType:
     def test_user_is_not_system(self):
         assert _classify_rule_type("user") is False
 
-    def test_internal_high_is_system(self):
-        assert _classify_rule_type("internal_high") is True
+    def test_internal_high_is_not_system(self):
+        """internal_high is a priority level, not a system marker."""
+        assert _classify_rule_type("internal_high") is False
 
     def test_default_policy_is_system(self):
         assert _classify_rule_type("default_policy") is True
@@ -312,9 +335,10 @@ class TestNormalizeFirewall:
             "10.121.43.0/24",
         ]
 
-    def test_system_rule_flagged(self):
+    def test_internal_high_is_not_system(self):
+        """internal_high is a priority level, not a system rule type."""
         rule = next(r for r in self.result["rules"] if r["original_id"] == "131073")
-        assert rule["is_system"] is True
+        assert rule["is_system"] is False
 
     def test_vse_rule_skipped(self):
         """Rules with vnicGroupId containing 'vse' should be excluded."""
@@ -349,6 +373,16 @@ class TestNormalizeFirewall:
     def test_destination_ips_collected(self):
         rule = next(r for r in self.result["rules"] if r["original_id"] == "135393")
         assert rule["destination"]["ip_addresses"] == ["192.168.1.0/24"]
+
+    def test_vnic_group_id_internal_parsed(self):
+        rule = next(r for r in self.result["rules"] if r["original_id"] == "135500")
+        assert rule["source"]["vnic_group_ids"] == ["internal"]
+
+    def test_multi_service_application_parsed(self):
+        rule = next(r for r in self.result["rules"] if r["original_id"] == "135500")
+        assert len(rule["application"]) == 2
+        assert rule["application"][0] == {"protocol": "tcp", "port": "80"}
+        assert rule["application"][1] == {"protocol": "tcp", "port": "443"}
 
 
 # -----------------------------------------------------------------------
@@ -512,8 +546,8 @@ class TestNormalizeEdgeSnapshot:
         assert "nat" in self.result
         assert "routing" in self.result
 
-        # Firewall: 4 rules total (vse rule skipped from 5)
-        assert len(self.result["firewall"]["rules"]) == 4
+        # Firewall: 5 rules total (vse rule skipped from 6)
+        assert len(self.result["firewall"]["rules"]) == 5
 
         # NAT: 4 rules
         assert len(self.result["nat"]["rules"]) == 4
@@ -599,6 +633,55 @@ class TestEdgeCases:
     def test_invalid_xml_raises_parse_error(self):
         with pytest.raises(StdET.ParseError):
             _normalize_firewall("not xml at all")
+
+    def test_internal_high_with_vse_filtered_but_internal_kept(self):
+        """internal_high + vse → filtered; internal_high + internal → kept."""
+        xml = """
+        <firewall>
+          <enabled>true</enabled>
+          <defaultPolicy><action>deny</action></defaultPolicy>
+          <firewallRules>
+            <firewallRule>
+              <id>1001</id><name>vse-system</name>
+              <ruleType>internal_high</ruleType>
+              <enabled>true</enabled><loggingEnabled>false</loggingEnabled>
+              <action>accept</action>
+              <source>
+                <vnicGroupId>vse-abc123</vnicGroupId>
+              </source>
+            </firewallRule>
+            <firewallRule>
+              <id>1002</id><name>dns</name>
+              <ruleType>internal_high</ruleType>
+              <enabled>true</enabled><loggingEnabled>false</loggingEnabled>
+              <action>accept</action>
+              <source>
+                <vnicGroupId>internal</vnicGroupId>
+              </source>
+              <application>
+                <service>
+                  <protocol>udp</protocol>
+                  <port>53</port>
+                </service>
+                <service>
+                  <protocol>tcp</protocol>
+                  <port>53</port>
+                </service>
+              </application>
+            </firewallRule>
+          </firewallRules>
+        </firewall>
+        """
+        result = _normalize_firewall(xml)
+        ids = [r["original_id"] for r in result["rules"]]
+        # vse rule filtered by _has_vse_vnic
+        assert "1001" not in ids
+        # internal rule kept — internal_high is not a system rule type
+        assert "1002" in ids
+        dns_rule = next(r for r in result["rules"] if r["original_id"] == "1002")
+        assert dns_rule["is_system"] is False
+        assert dns_rule["source"]["vnic_group_ids"] == ["internal"]
+        assert len(dns_rule["application"]) == 2
 
     def test_firewall_rule_no_application(self):
         xml = """
