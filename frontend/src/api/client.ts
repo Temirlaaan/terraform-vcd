@@ -32,10 +32,9 @@ if (!AUTH_DISABLED) {
       // Refresh token if it expires within 30s
       try {
         await keycloak.updateToken(30);
-      } catch {
-        // Token refresh failed — force re-login
-        keycloak.login();
-        return config;
+      } catch (err) {
+        console.error("[keycloak] updateToken failed:", err);
+        throw err;
       }
 
       config.headers.Authorization = `Bearer ${keycloak.token}`;

@@ -42,6 +42,7 @@ export function KeycloakProvider({ children }: Props) {
         onLoad: "login-required",
         checkLoginIframe: false,
         pkceMethod: "S256",
+        redirectUri: window.location.origin + "/",
       }}
       LoadingComponent={<AuthLoading />}
     >
