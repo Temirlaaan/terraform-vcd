@@ -1,10 +1,20 @@
-import { useRef } from "react";
-import { ArrowLeftRight, AlertCircle, FileCode2 } from "lucide-react";
+import { useEffect } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import {
+  ArrowLeftRight,
+  AlertCircle,
+  FileCode2,
+  RotateCcw,
+} from "lucide-react";
 import { useMigrationGenerate, type MigrationRequest } from "@/api/migrationApi";
+import { useDeployment } from "@/api/deploymentsApi";
 import { MigrationForm } from "@/components/migration/MigrationForm";
 import { MigrationSummary } from "@/components/migration/MigrationSummary";
 import { MigrationHclPreview } from "@/components/migration/MigrationHclPreview";
 import { MigrationActionBar } from "@/components/migration/MigrationActionBar";
+import { MigrationSaveButton } from "@/components/migration/MigrationSaveButton";
+import { DuplicateDeploymentBanner } from "@/components/migration/DuplicateDeploymentBanner";
+import { useMigrationStore } from "@/store/useMigrationStore";
 import { isAxiosError } from "axios";
 
 function getErrorMessage(error: unknown): string {
@@ -20,15 +30,44 @@ function getErrorMessage(error: unknown): string {
 }
 
 export function MigrationPage() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const deploymentId = searchParams.get("deployment") ?? undefined;
+
   const mutation = useMigrationGenerate();
-  const lastSubmit = useRef({ target_org: "", target_edge_id: "" });
+  const form = useMigrationStore((s) => s.form);
+  const result = useMigrationStore((s) => s.result);
+  const setResult = useMigrationStore((s) => s.setResult);
+  const hydrateFromDeployment = useMigrationStore(
+    (s) => s.hydrateFromDeployment,
+  );
+  const resetForm = useMigrationStore((s) => s.resetForm);
+
+  const deploymentQuery = useDeployment(deploymentId);
+
+  useEffect(() => {
+    if (deploymentQuery.data) {
+      hydrateFromDeployment(deploymentQuery.data);
+      navigate("/migration", { replace: true });
+    }
+  }, [deploymentQuery.data, hydrateFromDeployment, navigate]);
 
   const handleSubmit = (data: MigrationRequest) => {
-    lastSubmit.current = {
-      target_org: data.target_org,
-      target_edge_id: data.target_edge_id,
-    };
-    mutation.mutate(data);
+    mutation.mutate(data, {
+      onSuccess: (resp) => {
+        setResult({
+          hcl: resp.hcl,
+          edgeName: resp.edge_name,
+          summary: resp.summary,
+        });
+      },
+    });
+  };
+
+  const handleReset = () => {
+    resetForm();
+    mutation.reset();
+    navigate("/migration", { replace: true });
   };
 
   return (
@@ -36,15 +75,27 @@ export function MigrationPage() {
       {/* Left panel — form */}
       <aside className="w-96 flex-none bg-clr-near-white border-r border-clr-border overflow-y-auto flex flex-col">
         {/* Header */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-clr-border">
-          <ArrowLeftRight className="h-4 w-4 text-clr-action" />
-          <h2 className="text-clr-text font-semibold tracking-tight text-sm">
-            Edge Migration
-          </h2>
-          <span className="text-[10px] font-medium text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
-            NSX-V → NSX-T
-          </span>
+        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-clr-border">
+          <div className="flex items-center gap-2">
+            <ArrowLeftRight className="h-4 w-4 text-clr-action" />
+            <h2 className="text-clr-text font-semibold tracking-tight text-sm">
+              Edge Migration
+            </h2>
+            <span className="text-[10px] font-medium text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+              NSX-V → NSX-T
+            </span>
+          </div>
+          <button
+            onClick={handleReset}
+            className="text-clr-placeholder hover:text-clr-text transition-colors"
+            title="Reset form"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </button>
         </div>
+
+        {/* Layer 1 duplicate check */}
+        <DuplicateDeploymentBanner targetEdgeId={form.edgeGatewayId} />
 
         {/* Form */}
         <div className="flex-1 overflow-y-auto">
@@ -67,26 +118,28 @@ export function MigrationPage() {
 
       {/* Right panel — results */}
       <div className="flex-1 min-w-0 overflow-hidden flex flex-col">
-        {mutation.data ? (
+        {result ? (
           <>
             {/* Summary */}
             <div className="flex-none border-b border-clr-border">
               <MigrationSummary
-                summary={mutation.data.summary}
-                edgeName={mutation.data.edge_name}
+                summary={result.summary}
+                edgeName={result.edgeName}
               />
             </div>
             {/* Action bar: Plan / Apply */}
             <MigrationActionBar
-              hcl={mutation.data.hcl}
-              targetOrg={lastSubmit.current.target_org}
-              targetEdgeId={lastSubmit.current.target_edge_id}
+              hcl={result.hcl}
+              targetOrg={form.orgName}
+              targetEdgeId={form.edgeGatewayId}
             />
+            {/* Save to deployments */}
+            <MigrationSaveButton />
             {/* HCL preview */}
             <div className="flex-1 min-h-0">
               <MigrationHclPreview
-                hcl={mutation.data.hcl}
-                edgeName={mutation.data.edge_name}
+                hcl={result.hcl}
+                edgeName={result.edgeName}
               />
             </div>
           </>

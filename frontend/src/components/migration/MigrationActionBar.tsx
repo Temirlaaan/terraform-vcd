@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Play, Rocket, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { useConfigStore } from "@/store/useConfigStore";
 import { useMigrationPlan, useMigrationApply } from "@/api/migrationApi";
+import { TargetCheckModal } from "./TargetCheckModal";
 
 interface MigrationActionBarProps {
   hcl: string;
@@ -23,6 +25,8 @@ export function MigrationActionBar({
   const planMutation = useMigrationPlan();
   const applyMutation = useMigrationApply();
 
+  const [checkOpen, setCheckOpen] = useState(false);
+
   const canPlan =
     hcl.length > 0 &&
     planStatus !== "planning" &&
@@ -32,7 +36,13 @@ export function MigrationActionBar({
     currentOperationId !== null &&
     !applyMutation.isPending;
 
-  const handlePlan = () => {
+  const handlePlanClick = () => {
+    if (!canPlan) return;
+    setCheckOpen(true);
+  };
+
+  const handlePlanConfirmed = () => {
+    setCheckOpen(false);
     setOperation(null, "planning");
     openTerminal();
 
@@ -93,7 +103,7 @@ export function MigrationActionBar({
       {/* Buttons */}
       <div className="flex gap-2">
         <button
-          onClick={handlePlan}
+          onClick={handlePlanClick}
           disabled={!canPlan}
           className={cn(
             "flex-1 flex items-center justify-center gap-2 rounded-sm px-4 py-2 text-sm font-medium transition-colors",
@@ -141,6 +151,14 @@ export function MigrationActionBar({
         <p className="text-[11px] text-clr-success text-center">
           Apply completed successfully.
         </p>
+      )}
+
+      {checkOpen && targetEdgeId && (
+        <TargetCheckModal
+          targetEdgeId={targetEdgeId}
+          onCancel={() => setCheckOpen(false)}
+          onConfirm={handlePlanConfirmed}
+        />
       )}
     </div>
   );

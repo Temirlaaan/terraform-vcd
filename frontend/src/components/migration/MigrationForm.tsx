@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { FormInput, FormCheckbox, FormSelect } from "@/components/shared";
 import type { MigrationRequest } from "@/api/migrationApi";
@@ -7,6 +6,7 @@ import {
   useVdcsByOrg,
   useEdgeGatewaysByVdc,
 } from "@/api/metadataApi";
+import { useMigrationStore } from "@/store/useMigrationStore";
 
 interface MigrationFormProps {
   onSubmit: (data: MigrationRequest) => void;
@@ -14,24 +14,14 @@ interface MigrationFormProps {
 }
 
 export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
-  // Legacy VCD fields
-  const [host, setHost] = useState("");
-  const [apiToken, setApiToken] = useState("");
-  const [edgeUuid, setEdgeUuid] = useState("");
+  const form = useMigrationStore((s) => s.form);
+  const apiToken = useMigrationStore((s) => s.apiToken);
+  const setFormField = useMigrationStore((s) => s.setFormField);
+  const setApiToken = useMigrationStore((s) => s.setApiToken);
 
-  // Target selection — store both id and name where needed
-  const [selectedOrgId, setSelectedOrgId] = useState("");
-  const [selectedOrgName, setSelectedOrgName] = useState("");
-  const [selectedVdcId, setSelectedVdcId] = useState("");
-  const [selectedVdcName, setSelectedVdcName] = useState("");
-  const [targetEdgeId, setTargetEdgeId] = useState("");
-
-  const [verifySsl, setVerifySsl] = useState(false);
-
-  // Cascading queries
   const orgsQuery = useOrgs();
-  const vdcsQuery = useVdcsByOrg(selectedOrgId || undefined);
-  const edgesQuery = useEdgeGatewaysByVdc(selectedVdcId || undefined);
+  const vdcsQuery = useVdcsByOrg(form.orgId || undefined);
+  const edgesQuery = useEdgeGatewaysByVdc(form.vdcId || undefined);
 
   const orgOptions = (orgsQuery.data ?? []).map((o) => ({
     label: o.name,
@@ -48,38 +38,37 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
 
   const handleOrgChange = (orgId: string) => {
     const org = orgsQuery.data?.find((o) => o.id === orgId);
-    setSelectedOrgId(orgId);
-    setSelectedOrgName(org?.name ?? "");
-    // Reset dependent selections
-    setSelectedVdcId("");
-    setSelectedVdcName("");
-    setTargetEdgeId("");
+    setFormField("orgId", orgId);
+    setFormField("orgName", org?.name ?? "");
+    setFormField("vdcId", "");
+    setFormField("vdcName", "");
+    setFormField("edgeGatewayId", "");
   };
 
   const handleVdcChange = (vdcId: string) => {
     const vdc = vdcsQuery.data?.find((v) => v.id === vdcId);
-    setSelectedVdcId(vdcId);
-    setSelectedVdcName(vdc?.name ?? "");
-    // Reset dependent selection
-    setTargetEdgeId("");
+    setFormField("vdcId", vdcId);
+    setFormField("vdcName", vdc?.name ?? "");
+    setFormField("edgeGatewayId", "");
   };
 
-  const hasLegacyConfig = host && apiToken && edgeUuid;
-  const hasTargetSelection = selectedOrgName && selectedVdcName && targetEdgeId;
+  const hasLegacyConfig = form.host && apiToken && form.edgeUuid;
+  const hasTargetSelection =
+    form.orgName && form.vdcName && form.edgeGatewayId;
   const canSubmit = hasLegacyConfig && hasTargetSelection;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit || isLoading) return;
     onSubmit({
-      host,
+      host: form.host,
       api_token: apiToken,
-      edge_uuid: edgeUuid,
-      target_org: selectedOrgName,
-      target_vdc: selectedVdcName,
-      target_vdc_id: selectedVdcId,
-      target_edge_id: targetEdgeId,
-      verify_ssl: verifySsl,
+      edge_uuid: form.edgeUuid,
+      target_org: form.orgName,
+      target_vdc: form.vdcName,
+      target_vdc_id: form.vdcId,
+      target_edge_id: form.edgeGatewayId,
+      verify_ssl: form.verifySsl,
     });
   };
 
@@ -92,8 +81,8 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
         </legend>
         <FormInput
           label="Host URL"
-          value={host}
-          onChange={setHost}
+          value={form.host}
+          onChange={(v) => setFormField("host", v)}
           placeholder="https://vcd-legacy.example.com"
         />
         <label className="block space-y-1">
@@ -112,8 +101,8 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
         </label>
         <FormInput
           label="Edge Gateway UUID"
-          value={edgeUuid}
-          onChange={setEdgeUuid}
+          value={form.edgeUuid}
+          onChange={(v) => setFormField("edgeUuid", v)}
           placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
         />
       </fieldset>
@@ -125,7 +114,7 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
         </legend>
         <FormSelect
           label="Organization"
-          value={selectedOrgId}
+          value={form.orgId}
           onChange={handleOrgChange}
           options={orgOptions}
           isLoading={orgsQuery.isLoading}
@@ -133,21 +122,21 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
         />
         <FormSelect
           label="VDC"
-          value={selectedVdcId}
+          value={form.vdcId}
           onChange={handleVdcChange}
           options={vdcOptions}
           isLoading={vdcsQuery.isLoading}
-          disabled={!selectedOrgId}
-          placeholder={selectedOrgId ? "Select VDC..." : "Select organization first"}
+          disabled={!form.orgId}
+          placeholder={form.orgId ? "Select VDC..." : "Select organization first"}
         />
         <FormSelect
           label="Edge Gateway"
-          value={targetEdgeId}
-          onChange={setTargetEdgeId}
+          value={form.edgeGatewayId}
+          onChange={(v) => setFormField("edgeGatewayId", v)}
           options={edgeOptions}
           isLoading={edgesQuery.isLoading}
-          disabled={!selectedVdcId}
-          placeholder={selectedVdcId ? "Select edge gateway..." : "Select VDC first"}
+          disabled={!form.vdcId}
+          placeholder={form.vdcId ? "Select edge gateway..." : "Select VDC first"}
         />
       </fieldset>
 
@@ -158,8 +147,8 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
         </legend>
         <FormCheckbox
           label="Verify SSL certificate"
-          checked={verifySsl}
-          onChange={setVerifySsl}
+          checked={form.verifySsl}
+          onChange={(v) => setFormField("verifySsl", v)}
         />
       </fieldset>
 

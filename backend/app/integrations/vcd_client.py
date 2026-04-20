@@ -344,6 +344,64 @@ class VCDClient:
             )
         return clusters
 
+    # ------------------------------------------------------------------
+    # NSX-T Edge Gateway inspection (uncached — used for pre-migration check)
+    # ------------------------------------------------------------------
+
+    async def _count_or_zero(self, path: str, params: dict | None = None) -> int:
+        """Fetch a CloudAPI list endpoint and return the count of items.
+
+        Returns 0 on any HTTP error so the pre-migration check can still
+        surface partial information when some sub-resources are unavailable.
+        """
+        try:
+            items = await self._get_paginated(path, params=params)
+            return len(items)
+        except httpx.HTTPError as exc:
+            logger.warning("Failed to fetch %s: %s", path, exc)
+            return 0
+
+    async def count_ip_sets_on_edge(self, edge_id: str) -> int:
+        """Count IP sets scoped to the given NSX-T edge gateway."""
+        params = {
+            "filter": f"(ownerRef.id=={edge_id};typeValue==IP_SET)",
+        }
+        return await self._count_or_zero(
+            "/cloudapi/1.0.0/nsxTFirewallGroups", params=params
+        )
+
+    async def count_nat_rules_on_edge(self, edge_id: str) -> int:
+        """Count NAT rules on the given NSX-T edge gateway."""
+        return await self._count_or_zero(
+            f"/cloudapi/1.0.0/edgeGateways/{edge_id}/nat/rules"
+        )
+
+    async def count_firewall_rules_on_edge(self, edge_id: str) -> int:
+        """Count firewall rules on the given NSX-T edge gateway.
+
+        The firewall rules endpoint returns a single object with a
+        ``userDefinedRules`` array rather than a paginated list.
+        """
+        try:
+            data = await self._get(
+                f"/cloudapi/1.0.0/edgeGateways/{edge_id}/firewall/rules"
+            )
+            if isinstance(data, dict):
+                rules = data.get("userDefinedRules") or data.get("values") or []
+                return len(rules) if isinstance(rules, list) else 0
+            if isinstance(data, list):
+                return len(data)
+            return 0
+        except httpx.HTTPError as exc:
+            logger.warning("Failed to fetch firewall rules for %s: %s", edge_id, exc)
+            return 0
+
+    async def count_static_routes_on_edge(self, edge_id: str) -> int:
+        """Count static routes on the given NSX-T edge gateway."""
+        return await self._count_or_zero(
+            f"/cloudapi/1.0.0/edgeGateways/{edge_id}/routing/staticRoutes"
+        )
+
     @cached(prefix="vcd:extnet", ttl=_CACHE_TTL)
     async def get_external_networks(self) -> list[dict]:
         items = await self._get_paginated("/cloudapi/1.0.0/externalNetworks")

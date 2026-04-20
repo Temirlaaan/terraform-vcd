@@ -57,3 +57,12 @@ class MigrationApplyRequest(BaseModel):
     """Request body for POST /api/v1/migration/apply."""
 
     operation_id: uuid.UUID = Field(..., description="Plan operation ID to apply")
+
+
+class TargetCheckResponse(BaseModel):
+    """Response body for GET /api/v1/migration/target-check."""
+
+    ip_sets_count: int
+    nat_rules_count: int
+    firewall_rules_count: int
+    static_routes_count: int

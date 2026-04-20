@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,7 @@ from app.auth import AuthenticatedUser, require_roles
 from app.core.locking import acquire_org_lock, get_org_lock_holder, release_org_lock
 from app.core.tf_workspace import TerraformWorkspace
 from app.database import get_db
+from app.integrations.vcd_client import vcd_client
 from app.migration.fetcher import LegacyVcdFetcher
 from app.migration.generator import MigrationHCLGenerator
 from app.migration.normalizer import normalize_edge_snapshot
@@ -27,6 +28,7 @@ from app.schemas.migration import (
     MigrationRequest,
     MigrationResponse,
     MigrationSummary,
+    TargetCheckResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -295,3 +297,36 @@ async def migration_apply(
     # --- Launch background task (reuse from terraform.py) ---
     asyncio.create_task(_run_apply_task(apply_id, org_name, workspace))
     return MigrationPlanResponse(operation_id=apply_id)
+
+
+@router.get("/target-check", response_model=TargetCheckResponse)
+async def migration_target_check(
+    edge_id: str = Query(..., min_length=1, description="Target NSX-T edge gateway URN"),
+    user: AuthenticatedUser = Depends(
+        require_roles("tf-admin", "tf-operator", "tf-viewer")
+    ),
+) -> TargetCheckResponse:
+    """Inspect the target NSX-T edge gateway before migration.
+
+    Returns counts of IP sets, NAT rules, firewall rules, and static routes
+    currently present on the target edge so the user can confirm they won't
+    overwrite or duplicate existing configuration.
+    """
+    logger.info(
+        "user=%s action=migration_target_check edge_id=%s",
+        user.username, edge_id,
+    )
+
+    ip_sets, nat_rules, fw_rules, routes = await asyncio.gather(
+        vcd_client.count_ip_sets_on_edge(edge_id),
+        vcd_client.count_nat_rules_on_edge(edge_id),
+        vcd_client.count_firewall_rules_on_edge(edge_id),
+        vcd_client.count_static_routes_on_edge(edge_id),
+    )
+
+    return TargetCheckResponse(
+        ip_sets_count=ip_sets,
+        nat_rules_count=nat_rules,
+        firewall_rules_count=fw_rules,
+        static_routes_count=routes,
+    )

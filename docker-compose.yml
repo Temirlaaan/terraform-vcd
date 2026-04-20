@@ -118,7 +118,10 @@ services:
       - /app/node_modules
     environment:
       - VITE_API_URL=http://10.121.245.146:8000
-      - VITE_AUTH_DISABLED=${AUTH_DISABLED:-false}
+      - VITE_AUTH_DISABLED=${VITE_AUTH_DISABLED:-${AUTH_DISABLED:-false}}
+      - VITE_KEYCLOAK_URL=${VITE_KEYCLOAK_URL:-${KEYCLOAK_URL}}
+      - VITE_KEYCLOAK_REALM=${VITE_KEYCLOAK_REALM:-${KEYCLOAK_REALM}}
+      - VITE_KEYCLOAK_CLIENT_ID=${VITE_KEYCLOAK_CLIENT_ID:-${KEYCLOAK_CLIENT_ID:-terraform-dashboard}}
     depends_on:
       - backend
     command: npm run dev -- --host 0.0.0.0
