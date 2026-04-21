@@ -96,6 +96,8 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+    extra_hosts:
+      - "sso-ttc.t-cloud.kz:10.121.253.148"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 15s
@@ -115,7 +117,7 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=${VITE_API_URL:-http://10.121.253.14:8000}
+      - VITE_API_URL=${VITE_API_URL:-http://10.121.245.146:8000}
       - VITE_AUTH_DISABLED=${VITE_AUTH_DISABLED:-${AUTH_DISABLED:-false}}
       - VITE_KEYCLOAK_URL=${VITE_KEYCLOAK_URL:-${KEYCLOAK_URL}}
       - VITE_KEYCLOAK_REALM=${VITE_KEYCLOAK_REALM:-${KEYCLOAK_REALM}}

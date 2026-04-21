@@ -14,4 +14,20 @@ const keycloak = new Keycloak({
   clientId: import.meta.env.VITE_KEYCLOAK_CLIENT_ID ?? "terraform-dashboard",
 });
 
+// Module-level init guard. StrictMode mounts effects twice in dev; keycloak-js
+// init() is not idempotent. Caching the promise makes it effectively a singleton.
+let initPromise: Promise<boolean> | null = null;
+
+export function initKeycloak(): Promise<boolean> {
+  if (!initPromise) {
+    initPromise = keycloak.init({
+      onLoad: "login-required",
+      checkLoginIframe: false,
+      pkceMethod: "S256",
+      redirectUri: window.location.origin + "/",
+    });
+  }
+  return initPromise;
+}
+
 export default keycloak;

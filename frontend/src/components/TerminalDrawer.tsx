@@ -41,13 +41,18 @@ export function TerminalDrawer() {
 
   /* ---------- WebSocket lifecycle ---------- */
   useEffect(() => {
-    if (!operationId || !token) return;
+    if (!operationId) return;
 
-    // Clear previous logs when a new operation starts
+    // Snapshot the token at connection time. Subsequent token refreshes must
+    // not trigger a reconnect — backend only validates at handshake, and
+    // reconnecting mid-operation would drop log lines.
+    const currentToken = token;
+    if (!currentToken) return;
+
     setLogs([]);
     setConnected(false);
 
-    const ws = new WebSocket(wsUrl(operationId, token));
+    const ws = new WebSocket(wsUrl(operationId, currentToken));
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -97,7 +102,8 @@ export function TerminalDrawer() {
       ws.close();
       wsRef.current = null;
     };
-  }, [operationId, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [operationId]);
 
   /* ---------- Auto-scroll ---------- */
   useEffect(() => {

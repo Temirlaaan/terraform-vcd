@@ -9,7 +9,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@react-keycloak/web": "^3.4.0",
     "@tanstack/react-query": "^5.62.0",
     "axios": "^1.7.9",
     "clsx": "^2.1.1",

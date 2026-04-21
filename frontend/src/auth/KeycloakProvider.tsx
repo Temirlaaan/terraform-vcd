@@ -1,14 +1,10 @@
-import { ReactKeycloakProvider } from "@react-keycloak/web";
 import { Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
-import keycloak from "./keycloak";
+import keycloak, { initKeycloak } from "./keycloak";
 
 const AUTH_DISABLED = import.meta.env.VITE_AUTH_DISABLED === "true";
-
-/* ------------------------------------------------------------------ */
-/*  Loading / error screens                                            */
-/* ------------------------------------------------------------------ */
 
 function AuthLoading() {
   return (
@@ -21,32 +17,33 @@ function AuthLoading() {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Provider                                                           */
-/* ------------------------------------------------------------------ */
-
 interface Props {
   children: ReactNode;
 }
 
 export function KeycloakProvider({ children }: Props) {
-  // Skip Keycloak entirely when auth is disabled (testing mode)
-  if (AUTH_DISABLED) {
-    return <>{children}</>;
-  }
+  const [initialized, setInitialized] = useState(AUTH_DISABLED);
 
-  return (
-    <ReactKeycloakProvider
-      authClient={keycloak}
-      initOptions={{
-        onLoad: "login-required",
-        checkLoginIframe: false,
-        pkceMethod: "S256",
-        redirectUri: window.location.origin + "/",
-      }}
-      LoadingComponent={<AuthLoading />}
-    >
-      {children}
-    </ReactKeycloakProvider>
-  );
+  useEffect(() => {
+    if (AUTH_DISABLED) return;
+
+    initKeycloak()
+      .then(() => setInitialized(true))
+      .catch((err) => {
+        console.error("[keycloak] init failed:", err);
+        setInitialized(true);
+      });
+
+    const interval = setInterval(() => {
+      keycloak.updateToken(60).catch(() => {
+        console.warn("[keycloak] token refresh failed, forcing login");
+        keycloak.login();
+      });
+    }, 30_000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!initialized) return <AuthLoading />;
+  return <>{children}</>;
 }
