@@ -65,7 +65,7 @@ services:
     container_name: tf_dashboard_backend
     networks:
       - default
-      - nginx-proxy
+      - proxy-network
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-tf_user}:${DB_PASSWORD:-password}@postgres:5432/${DB_NAME:-terraform_dashboard}
       - REDIS_URL=redis://redis:6379/0
@@ -114,10 +114,10 @@ services:
     container_name: tf_dashboard_frontend
     networks:
       - default
-      - nginx-proxy
+      - proxy-network
     volumes:
-      - ./frontend:/app
-      - /app/node_modules
+        - ./frontend:/app
+        - frontend_node_modules:/app/node_modules
     environment:
       - VITE_API_URL=${VITE_API_URL:-}
       - VITE_AUTH_DISABLED=${VITE_AUTH_DISABLED:-${AUTH_DISABLED:-false}}
@@ -133,6 +133,7 @@ volumes:
   redis_data:
   tf_workspaces:
   minio_data:
+  frontend_node_modules:  
 
 networks:
   # Internal network for postgres/redis/minio/backend/frontend.
@@ -142,6 +143,6 @@ networks:
   # Verify the exact name with:
   #   docker inspect nginx-proxy --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
   # and set `name:` accordingly. Common defaults: nginx-proxy_default, nginx-proxy.
-  nginx-proxy:
+  proxy-network:
     external: true
-    name: nginx-proxy_default
+    name: proxy-network
