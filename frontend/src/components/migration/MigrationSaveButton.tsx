@@ -57,6 +57,7 @@ export function MigrationSaveButton() {
         target_vdc: form.vdcName,
         target_vdc_id: form.vdcId,
         target_edge_id: form.edgeGatewayId,
+        target_edge_name: form.edgeGatewayName || null,
         hcl: result.hcl,
         summary: result.summary,
       },

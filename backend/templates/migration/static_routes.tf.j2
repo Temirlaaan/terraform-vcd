@@ -1,5 +1,6 @@
 {% for route in routing.static_routes %}
 resource "vcd_nsxt_edgegateway_static_route" "route_{{ loop.index }}" {
+  org             = var.target_org
   edge_gateway_id = var.target_edge_id
   name            = "migrated_route_{{ loop.index }}"
   description     = "{{ route.description | default('', true) | hcl_escape }}"

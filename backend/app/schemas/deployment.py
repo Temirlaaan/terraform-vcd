@@ -22,6 +22,7 @@ class DeploymentCreate(BaseModel):
     target_vdc: str = Field(..., min_length=1)
     target_vdc_id: str = Field(..., min_length=1)
     target_edge_id: str = Field(..., min_length=1)
+    target_edge_name: str | None = None
     hcl: str = Field(..., min_length=1)
     summary: dict[str, Any]
 
@@ -56,11 +57,14 @@ class DeploymentOut(BaseModel):
     target_vdc: str
     target_vdc_id: str
     target_edge_id: str
+    target_edge_name: str | None = None
     hcl: str
     summary: dict[str, Any]
     created_by: str
     created_at: datetime
     updated_at: datetime
+    needs_review: bool = False
+    last_drift_check: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -75,6 +79,7 @@ class DeploymentListItem(BaseModel):
     source_edge_name: str
     target_org: str
     target_vdc: str
+    target_edge_name: str | None = None
     summary: dict[str, Any]
     created_by: str
     created_at: datetime

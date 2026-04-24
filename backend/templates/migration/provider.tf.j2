@@ -5,6 +5,22 @@ terraform {
       version = "~> 3.12"
     }
   }
+
+  backend "s3" {
+    bucket = "{{ state_bucket | default('terraform-state') }}"
+    key    = "{{ state_key }}"
+    region = "{{ state_region | default('us-east-1') }}"
+
+    endpoints = {
+      s3 = "{{ state_endpoint | default('http://minio:9000') }}"
+    }
+
+    use_path_style              = true
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    skip_region_validation      = true
+    skip_requesting_account_id  = true
+  }
 }
 
 provider "vcd" {

@@ -49,6 +49,13 @@ interface MigrationPlanRequest {
   hcl: string;
   target_org: string;
   target_edge_id: string;
+  source_edge_name?: string;
+  target_vdc?: string;
+  target_edge_name?: string;
+  source_host?: string;
+  source_edge_uuid?: string;
+  verify_ssl?: boolean;
+  summary?: MigrationSummary;
 }
 
 interface MigrationOperationResponse {

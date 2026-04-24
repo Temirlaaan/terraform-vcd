@@ -100,7 +100,7 @@ class TerraformRunner:
             if redis:
                 await redis.publish(channel, f"[{label}] {line}")
 
-    async def _exec(self, *args: str) -> RunResult:
+    async def _exec(self, *args: str, emit_exit: bool = True) -> RunResult:
         """Run the terraform binary with the given arguments.
 
         If ``operation_id`` was provided, stdout and stderr are streamed
@@ -134,7 +134,7 @@ class TerraformRunner:
             await proc.wait()
 
             code = proc.returncode or 0
-            if redis:
+            if redis and emit_exit:
                 await redis.publish(channel, f"__EXIT:{code}")
 
             return RunResult(
@@ -151,12 +151,20 @@ class TerraformRunner:
     # ------------------------------------------------------------------
 
     async def init(self) -> RunResult:
-        """Run ``terraform init``."""
-        return await self._exec("init", "-no-color")
+        """Run ``terraform init``. Does NOT emit __EXIT — caller chains plan/apply afterwards and only the final command should signal completion."""
+        return await self._exec("init", "-no-color", emit_exit=False)
 
-    async def plan(self) -> RunResult:
-        """Run ``terraform plan`` and save the binary plan file."""
-        return await self._exec("plan", "-no-color", "-out=plan.bin")
+    async def plan(self, refresh: bool = True) -> RunResult:
+        """Run ``terraform plan`` and save the binary plan file.
+
+        ``refresh=False`` skips refresh phase — used by rollback to avoid
+        VCD provider ENF errors on resources deleted externally between
+        target version snapshot time and now.
+        """
+        args = ["plan", "-no-color", "-out=plan.bin"]
+        if not refresh:
+            args.append("-refresh=false")
+        return await self._exec(*args)
 
     async def apply(self) -> RunResult:
         """Run ``terraform apply`` using a previously saved plan."""
@@ -165,3 +173,29 @@ class TerraformRunner:
     async def destroy(self) -> RunResult:
         """Run ``terraform destroy -auto-approve``."""
         return await self._exec("destroy", "-no-color", "-auto-approve")
+
+    async def plan_refresh_only(self, out: str = "plan.bin") -> RunResult:
+        """Run ``terraform plan -refresh-only -detailed-exitcode``.
+
+        Returns RunResult where ``return_code`` carries detailed-exitcode
+        semantics: 0 = no drift, 1 = error, 2 = drift present. Callers must
+        NOT treat exit 2 as failure.
+        """
+        return await self._exec(
+            "plan",
+            "-no-color",
+            "-refresh-only",
+            "-detailed-exitcode",
+            f"-out={out}",
+            emit_exit=False,
+        )
+
+    async def show_plan_json(self, plan_file: str = "plan.bin") -> RunResult:
+        """Run ``terraform show -json <planfile>`` for parsing."""
+        return await self._exec(
+            "show", "-no-color", "-json", plan_file, emit_exit=False,
+        )
+
+    async def state_list(self) -> RunResult:
+        """Run ``terraform state list``."""
+        return await self._exec("state", "list", "-no-color", emit_exit=False)

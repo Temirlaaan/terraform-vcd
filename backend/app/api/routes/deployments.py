@@ -38,9 +38,17 @@ async def create_deployment(
     ``created_by`` is derived from the authenticated user, never from the
     request body.
     """
+    # Build friendly description if user did not supply one:
+    #   "<src_edge> -> <org>/<vdc>/<target_edge>  (manually saved)"
+    default_desc = (
+        f"{body.source_edge_name} -> "
+        f"{body.target_org}/{body.target_vdc}/{body.target_edge_name or ''}  (manually saved)"
+    )
+    description = body.description if body.description else default_desc
+
     deployment = Deployment(
         name=body.name.strip(),
-        description=body.description,
+        description=description,
         source_host=body.source_host,
         source_edge_uuid=body.source_edge_uuid,
         source_edge_name=body.source_edge_name,
@@ -49,6 +57,7 @@ async def create_deployment(
         target_vdc=body.target_vdc,
         target_vdc_id=body.target_vdc_id,
         target_edge_id=body.target_edge_id,
+        target_edge_name=body.target_edge_name,
         hcl=body.hcl,
         summary=body.summary,
         created_by=user.username,

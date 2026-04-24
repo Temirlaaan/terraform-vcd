@@ -43,6 +43,7 @@ class Deployment(Base):
     target_vdc: Mapped[str] = mapped_column(String(255), nullable=False)
     target_vdc_id: Mapped[str] = mapped_column(String(255), nullable=False)
     target_edge_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    target_edge_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Generated artifact
     hcl: Mapped[str] = mapped_column(Text, nullable=False)
@@ -60,4 +61,9 @@ class Deployment(Base):
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+    )
+    # Phase 4: drift sync state
+    needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_drift_check: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )

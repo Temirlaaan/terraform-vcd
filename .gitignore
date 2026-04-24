@@ -52,3 +52,9 @@ docker-compose.override.yml
 # Claude Code / AI tools
 .claude*
 .gemini/
+
+# Local backups and one-off debug scripts
+*.bak
+*.bak[0-9]*
+backend/dbg*.py
+backend/import_*.py

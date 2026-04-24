@@ -5,6 +5,7 @@ import { Layout } from "@/components/Layout";
 import { CatalogPage } from "@/pages/CatalogPage";
 import { ProvisionPage } from "@/pages/ProvisionPage";
 import { DeploymentsPage } from "@/pages/DeploymentsPage";
+import { DeploymentDetailPage } from "@/pages/DeploymentDetailPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { MigrationPage } from "@/pages/MigrationPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
@@ -29,6 +30,7 @@ export default function App() {
               <Route path="provision" element={<ProvisionPage />} />
               <Route path="migration" element={<MigrationPage />} />
               <Route path="deployments" element={<DeploymentsPage />} />
+              <Route path="deployments/:id" element={<DeploymentDetailPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Route>

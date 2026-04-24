@@ -127,8 +127,19 @@ async def _run_apply_task(
     apply_id: uuid.UUID,
     org_name: str,
     workspace: TerraformWorkspace,
+    deployment_id: uuid.UUID | None = None,
+    version_source: str = "apply",
+    version_user: str = "system",
+    version_label: str | None = None,
+    version_pinned: bool = False,
 ) -> None:
-    """Background: terraform apply, update DB, release lock, cleanup."""
+    """Background: terraform apply, update DB, release lock, cleanup.
+
+    When ``deployment_id`` is provided and the apply succeeds, a Phase 3
+    version snapshot is taken (HCL + state) into MinIO and a row is
+    inserted into ``deployment_versions``. Failures in snapshotting are
+    logged but do not roll back the apply itself.
+    """
     try:
         async with async_session() as db:
             result = await db.execute(
@@ -152,6 +163,27 @@ async def _run_apply_task(
                 )
             operation.completed_at = datetime.now(timezone.utc)
             await db.commit()
+
+            # Phase 3: snapshot deployment version after successful apply.
+            if apply_result.success and deployment_id is not None:
+                try:
+                    from app.core import version_store
+                    async with async_session() as snap_db:
+                        await version_store.snapshot_version(
+                            snap_db,
+                            deployment_id=deployment_id,
+                            workspace_dir=workspace.work_dir,
+                            source=version_source,
+                            created_by=version_user,
+                            label=version_label,
+                            is_pinned=version_pinned,
+                            force_new=(version_source == "rollback"),
+                        )
+                except Exception as snap_exc:
+                    logger.exception(
+                        "Version snapshot failed for apply %s deployment %s: %s",
+                        apply_id, deployment_id, snap_exc,
+                    )
 
     except Exception as exc:
         logger.exception("Background apply task failed for %s", apply_id)

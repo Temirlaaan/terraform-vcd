@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, Index, String, Text
+from sqlalchemy import DateTime, Enum, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,6 +13,7 @@ class OperationType(str, enum.Enum):
     PLAN = "PLAN"
     APPLY = "APPLY"
     DESTROY = "DESTROY"
+    ROLLBACK = "ROLLBACK"
 
 
 class OperationStatus(str, enum.Enum):
@@ -54,3 +55,8 @@ class Operation(Base):
     )
     plan_output: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deployment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+    target_edge_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    rollback_from_version: Mapped[int | None] = mapped_column(Integer, nullable=True)

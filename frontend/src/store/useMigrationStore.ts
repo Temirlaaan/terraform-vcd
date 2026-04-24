@@ -13,6 +13,7 @@ export interface MigrationFormState {
   vdcId: string;
   vdcName: string;
   edgeGatewayId: string;
+  edgeGatewayName: string;
   verifySsl: boolean;
 }
 
@@ -45,6 +46,7 @@ const defaultForm: MigrationFormState = {
   vdcId: "",
   vdcName: "",
   edgeGatewayId: "",
+  edgeGatewayName: "",
   verifySsl: false,
 };
 
@@ -86,6 +88,7 @@ export const useMigrationStore = create<MigrationStore>()(
             vdcId: d.target_vdc_id,
             vdcName: d.target_vdc,
             edgeGatewayId: d.target_edge_id,
+            edgeGatewayName: "",
             verifySsl: d.verify_ssl,
           },
           result: {

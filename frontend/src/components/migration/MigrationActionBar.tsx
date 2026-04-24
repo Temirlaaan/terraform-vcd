@@ -5,16 +5,32 @@ import { useConfigStore } from "@/store/useConfigStore";
 import { useMigrationPlan, useMigrationApply } from "@/api/migrationApi";
 import { TargetCheckModal } from "./TargetCheckModal";
 
+import type { MigrationSummary } from "@/api/migrationApi";
+
 interface MigrationActionBarProps {
   hcl: string;
   targetOrg: string;
   targetEdgeId: string;
+  sourceEdgeName?: string;
+  targetVdc?: string;
+  targetEdgeName?: string;
+  sourceHost?: string;
+  sourceEdgeUuid?: string;
+  verifySsl?: boolean;
+  summary?: MigrationSummary;
 }
 
 export function MigrationActionBar({
   hcl,
   targetOrg,
   targetEdgeId,
+  sourceEdgeName,
+  targetVdc,
+  targetEdgeName,
+  sourceHost,
+  sourceEdgeUuid,
+  verifySsl,
+  summary,
 }: MigrationActionBarProps) {
   const planStatus = useConfigStore((s) => s.planStatus);
   const planError = useConfigStore((s) => s.planError);
@@ -47,7 +63,18 @@ export function MigrationActionBar({
     openTerminal();
 
     planMutation.mutate(
-      { hcl, target_org: targetOrg, target_edge_id: targetEdgeId },
+      {
+        hcl,
+        target_org: targetOrg,
+        target_edge_id: targetEdgeId,
+        source_edge_name: sourceEdgeName,
+        target_vdc: targetVdc,
+        target_edge_name: targetEdgeName,
+        source_host: sourceHost,
+        source_edge_uuid: sourceEdgeUuid,
+        verify_ssl: verifySsl,
+        summary,
+      },
       {
         onSuccess: (data) => {
           setOperation(data.operation_id, "planning");

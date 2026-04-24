@@ -132,6 +132,13 @@ export function MigrationPage() {
               hcl={result.hcl}
               targetOrg={form.orgName}
               targetEdgeId={form.edgeGatewayId}
+              sourceEdgeName={result.edgeName}
+              targetVdc={form.vdcName}
+              targetEdgeName={form.edgeGatewayName}
+              sourceHost={form.host}
+              sourceEdgeUuid={form.edgeUuid}
+              verifySsl={form.verifySsl}
+              summary={result.summary}
             />
             {/* Save to deployments */}
             <MigrationSaveButton />

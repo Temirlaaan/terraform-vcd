@@ -1,6 +1,7 @@
 """Pydantic schemas for the edge migration API."""
 
 import uuid
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -45,6 +46,28 @@ class MigrationPlanRequest(BaseModel):
     hcl: str = Field(..., min_length=1, description="Pre-generated HCL from the Generate step")
     target_org: str = Field(..., min_length=1, description="Target organization name (for locking)")
     target_edge_id: str = Field(..., min_length=1, description="Target NSX-T edge gateway URN")
+    source_edge_name: str | None = Field(
+        None, description="Source (legacy NSX-V) edge name, used for auto-created deployment naming"
+    )
+    target_vdc: str | None = Field(
+        None, description="Target VDC name, used for auto-created deployment description"
+    )
+    target_edge_name: str | None = Field(
+        None, description="Target NSX-T edge gateway name, used for auto-created deployment description"
+    )
+    # Backfill hints for auto-created migration deployment row
+    source_host: str | None = Field(
+        None, description="Legacy VCD host URL, persisted on auto-created Deployment"
+    )
+    source_edge_uuid: str | None = Field(
+        None, description="Source NSX-V edge UUID, persisted on auto-created Deployment"
+    )
+    verify_ssl: bool | None = Field(
+        None, description="verify_ssl flag, persisted on auto-created Deployment"
+    )
+    summary: dict[str, Any] | None = Field(
+        None, description="Summary counts from /generate, persisted on auto-created Deployment"
+    )
 
 
 class MigrationPlanResponse(BaseModel):

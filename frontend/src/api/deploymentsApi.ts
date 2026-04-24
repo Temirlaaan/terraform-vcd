@@ -10,6 +10,7 @@ export interface DeploymentListItem {
   source_edge_name: string;
   target_org: string;
   target_vdc: string;
+  target_edge_name?: string | null;
   summary: MigrationSummary;
   created_by: string;
   created_at: string;
@@ -23,6 +24,8 @@ export interface Deployment extends DeploymentListItem {
   target_vdc_id: string;
   target_edge_id: string;
   hcl: string;
+  needs_review?: boolean;
+  last_drift_check?: string | null;
 }
 
 export interface DeploymentList {
@@ -41,6 +44,7 @@ export interface DeploymentCreate {
   target_vdc: string;
   target_vdc_id: string;
   target_edge_id: string;
+  target_edge_name?: string | null;
   hcl: string;
   summary: MigrationSummary;
 }
@@ -144,5 +148,156 @@ export function useTargetCheck() {
       );
       return data;
     },
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/*  Phase 3 — Version history                                         */
+/*  Phase 5 — Rollback                                                */
+/*  HCL editor (live deployment edit)                                 */
+/* ------------------------------------------------------------------ */
+
+export interface DeploymentVersion {
+  version_num: number;
+  source: string;
+  label: string | null;
+  is_pinned: boolean;
+  state_hash: string;
+  hcl_key: string;
+  state_key: string;
+  created_at: string;
+  created_by: string;
+}
+
+export interface VersionList {
+  items: DeploymentVersion[];
+  total: number;
+}
+
+export function useDeploymentVersions(id: string | undefined) {
+  return useQuery<VersionList>({
+    queryKey: [LIST_KEY, id, "versions"],
+    queryFn: async () => {
+      const { data } = await api.get<VersionList>(
+        `/api/v1/deployments/${id}/versions`,
+      );
+      return data;
+    },
+    enabled: !!id,
+    staleTime: 10_000,
+  });
+}
+
+export interface OperationIdResponse {
+  operation_id: string;
+}
+
+export function useRollbackPrepare(deploymentId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (version_num: number) => {
+      const { data } = await api.post<OperationIdResponse>(
+        `/api/v1/deployments/${deploymentId}/rollback/prepare`,
+        { version_num },
+      );
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [LIST_KEY, deploymentId, "versions"] });
+    },
+  });
+}
+
+export function useRollbackConfirm(deploymentId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (prepareOpId: string) => {
+      const { data } = await api.post<OperationIdResponse>(
+        `/api/v1/deployments/${deploymentId}/rollback/${prepareOpId}/confirm`,
+      );
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [LIST_KEY, deploymentId, "versions"] });
+    },
+  });
+}
+
+export function useDeploymentHcl(id: string | undefined) {
+  return useQuery<string>({
+    queryKey: [LIST_KEY, id, "hcl"],
+    queryFn: async () => {
+      const { data } = await api.get<string>(
+        `/api/v1/deployments/${id}/hcl`,
+        { transformResponse: (d) => d },
+      );
+      return data;
+    },
+    enabled: !!id,
+  });
+}
+
+export function useDeploymentPlan(deploymentId: string) {
+  return useMutation({
+    mutationFn: async (hcl: string) => {
+      const { data } = await api.post<OperationIdResponse>(
+        `/api/v1/deployments/${deploymentId}/plan`,
+        { hcl },
+      );
+      return data;
+    },
+  });
+}
+
+export function useDeploymentApply(deploymentId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (operation_id: string) => {
+      const { data } = await api.post<OperationIdResponse>(
+        `/api/v1/deployments/${deploymentId}/apply`,
+        { operation_id },
+      );
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [LIST_KEY, deploymentId, "versions"] });
+      qc.invalidateQueries({ queryKey: [LIST_KEY, deploymentId, "hcl"] });
+    },
+  });
+}
+
+export function useVersionHcl(
+  deploymentId: string | undefined,
+  versionNum: number | undefined,
+) {
+  return useQuery<string>({
+    queryKey: [LIST_KEY, deploymentId, "version-hcl", versionNum],
+    queryFn: async () => {
+      const { data } = await api.get<string>(
+        `/api/v1/deployments/${deploymentId}/versions/${versionNum}/hcl`,
+        { transformResponse: (d) => d },
+      );
+      return data;
+    },
+    enabled: !!deploymentId && versionNum !== undefined,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useVersionState(
+  deploymentId: string | undefined,
+  versionNum: number | undefined,
+  enabled: boolean = true,
+) {
+  return useQuery<unknown>({
+    queryKey: [LIST_KEY, deploymentId, "version-state", versionNum],
+    queryFn: async () => {
+      const { data } = await api.get<unknown>(
+        `/api/v1/deployments/${deploymentId}/versions/${versionNum}/state`,
+      );
+      return data;
+    },
+    enabled: !!deploymentId && versionNum !== undefined && enabled,
+    staleTime: 5 * 60 * 1000,
   });
 }

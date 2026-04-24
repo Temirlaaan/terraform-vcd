@@ -157,7 +157,7 @@ function DeploymentCard({ d, onRename, onDelete }: DeploymentCardProps) {
 
       <div>
         <Link
-          to={`/migration?deployment=${d.id}`}
+          to={`/deployments/${d.id}`}
           className="text-sm font-semibold text-clr-text leading-tight hover:text-clr-action break-words"
         >
           {d.name}
@@ -176,6 +176,7 @@ function DeploymentCard({ d, onRename, onDelete }: DeploymentCardProps) {
         <ArrowRight className="h-3 w-3 flex-none" />
         <span className="truncate">
           {d.target_org} / {d.target_vdc}
+          {d.target_edge_name ? ` / ${d.target_edge_name}` : ""}
         </span>
       </div>
 

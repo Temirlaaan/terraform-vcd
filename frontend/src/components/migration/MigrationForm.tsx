@@ -43,6 +43,7 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
     setFormField("vdcId", "");
     setFormField("vdcName", "");
     setFormField("edgeGatewayId", "");
+    setFormField("edgeGatewayName", "");
   };
 
   const handleVdcChange = (vdcId: string) => {
@@ -50,6 +51,7 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
     setFormField("vdcId", vdcId);
     setFormField("vdcName", vdc?.name ?? "");
     setFormField("edgeGatewayId", "");
+    setFormField("edgeGatewayName", "");
   };
 
   const hasLegacyConfig = form.host && apiToken && form.edgeUuid;
@@ -132,7 +134,11 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
         <FormSelect
           label="Edge Gateway"
           value={form.edgeGatewayId}
-          onChange={(v) => setFormField("edgeGatewayId", v)}
+          onChange={(v) => {
+            setFormField("edgeGatewayId", v);
+            const picked = edgesQuery.data?.find((e) => e.id === v);
+            setFormField("edgeGatewayName", picked?.name ?? "");
+          }}
           options={edgeOptions}
           isLoading={edgesQuery.isLoading}
           disabled={!form.vdcId}

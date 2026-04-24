@@ -7,20 +7,45 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 
 from app.api.routes.deployments import router as deployments_router
+from app.api.routes.drift import router as drift_router
+from app.api.routes.rollback import router as rollback_router
+from app.api.routes.deployment_hcl import router as deployment_hcl_router
 from app.api.routes.metadata import router as metadata_router
 from app.api.routes.migration import router as migration_router
 from app.api.routes.terraform import router as terraform_router
+from app.api.routes.versions import router as versions_router
 from app.api.routes.ws import router as ws_router
 from app.config import settings
-from app.database import engine
+from app.scheduler import start_scheduler, stop_scheduler
+from app.database import Base, engine
+
+# Ensure all models are imported so Base.metadata sees them before create_all.
+from app import models  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Application starting up")
+    logger.info("Application starting up — running Base.metadata.create_all()")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("create_all completed")
+    except Exception as exc:
+        logger.error("create_all failed at startup: %s", exc)
+
+    try:
+        start_scheduler()
+    except Exception:
+        logger.exception("Failed to start scheduler")
+
     yield
+
+    try:
+        stop_scheduler()
+    except Exception:
+        logger.exception("Failed to stop scheduler")
     logger.info("Application shutting down")
 
 
@@ -42,6 +67,10 @@ app.include_router(terraform_router, prefix="/api/v1")
 app.include_router(metadata_router, prefix="/api/v1")
 app.include_router(migration_router, prefix="/api/v1")
 app.include_router(deployments_router, prefix="/api/v1")
+app.include_router(versions_router, prefix="/api/v1")
+app.include_router(drift_router, prefix="/api/v1")
+app.include_router(rollback_router, prefix="/api/v1")
+app.include_router(deployment_hcl_router, prefix="/api/v1")
 app.include_router(ws_router)
 
 

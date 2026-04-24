@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     # Workspace cleanup — delete workspace directories after completion
     workspace_cleanup_enabled: bool = True
 
+    # Phase 4: daily drift sync
+    drift_sync_enabled: bool = True
+    drift_sync_cron: str = "0 3 * * *"  # 03:00 daily
+    drift_sync_timezone: str = "Asia/Almaty"
+    drift_sync_lock_ttl: int = 1800  # 30 minutes, safety if job crashes
+
     # Telegram
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
