@@ -16,7 +16,8 @@ Rules:
       - migration_baseline  (migration flow, explicit is_pinned)
       - named_snapshot      (make_named_snapshot)
       - initial_baseline    (very first v1 of any deployment)
-      - rollback            (each rollback event kept as restorable anchor)
+    Rollback rows are NOT auto-pinned; admins pin manually via
+    ``set_pinned`` if the rollback state should survive rotation.
 """
 
 from __future__ import annotations
@@ -75,12 +76,10 @@ async def snapshot_version(
     refresh-only succeeded). Uses ``terraform show -json`` to compute a
     canonical state hash for dedup.
 
-    Auto-pin rules applied before insert:
+    Auto-pin rule applied before insert:
       * first version (``version_num == 1``) of a deployment is pinned as
         ``initial_baseline`` (unless caller already set is_pinned or
-        supplied a label).
-      * ``source == 'rollback'`` rows are pinned so rotation cannot
-        remove a restorable anchor.
+        supplied a label). Oldest restorable point must survive rotation.
     """
     state_hash = await compute_state_hash(workspace_dir, settings.terraform_binary)
 
@@ -119,16 +118,6 @@ async def snapshot_version(
             label = "initial_baseline"
         logger.info(
             "snapshot: auto-pin first version as baseline deployment=%s",
-            deployment_id,
-        )
-
-    # Auto-pin rollback events: each rollback is a deliberate admin
-    # action; losing it to rotation breaks the "dashboard = source of
-    # truth for recovery" invariant.
-    if source == "rollback" and not is_pinned:
-        is_pinned = True
-        logger.info(
-            "snapshot: auto-pin rollback version deployment=%s",
             deployment_id,
         )
 
@@ -281,6 +270,45 @@ async def count_versions(db: AsyncSession, deployment_id: uuid.UUID) -> int:
         .where(DeploymentVersion.deployment_id == deployment_id)
     )
     return int(result.scalar_one())
+
+
+async def set_pinned(
+    db: AsyncSession,
+    deployment_id: uuid.UUID,
+    version_num: int,
+    pinned: bool,
+) -> DeploymentVersion:
+    """Toggle ``is_pinned`` on a version.
+
+    When unpinning, a rotation pass runs after commit so the newly
+    non-pinned row is considered for removal if the deployment is over
+    ``MAX_NON_PINNED``.
+    """
+    result = await db.execute(
+        select(DeploymentVersion).where(
+            DeploymentVersion.deployment_id == deployment_id,
+            DeploymentVersion.version_num == version_num,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise ValueError(f"Version v{version_num} not found")
+
+    if row.is_pinned == pinned:
+        return row
+
+    row.is_pinned = pinned
+    await db.commit()
+    await db.refresh(row)
+    logger.info(
+        "set_pinned: deployment=%s v%d pinned=%s",
+        deployment_id, version_num, pinned,
+    )
+
+    if not pinned:
+        await rotate(db, deployment_id)
+
+    return row
 
 
 async def make_named_snapshot(

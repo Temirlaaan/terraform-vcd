@@ -1,0 +1,33 @@
+variable "vcd_url" {
+  type = string
+}
+
+variable "vcd_user" {
+  type      = string
+  sensitive = true
+}
+
+variable "vcd_password" {
+  type      = string
+  sensitive = true
+}
+
+variable "target_org" {
+  type    = string
+  default = "{{ target.org | hcl_escape }}"
+}
+
+variable "target_vdc" {
+  type    = string
+  default = "{{ target.vdc | hcl_escape }}"
+}
+
+variable "target_vdc_id" {
+  type    = string
+  default = "{{ target.vdc_id | hcl_escape }}"
+}
+
+variable "target_edge_id" {
+  type    = string
+  default = "{{ target.edge_id | hcl_escape }}"
+}

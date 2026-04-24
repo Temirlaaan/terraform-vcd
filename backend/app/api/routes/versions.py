@@ -1,10 +1,12 @@
-"""Read-only + named-snapshot endpoints for deployment versions.
+"""Read-only + named-snapshot + pin toggle endpoints for deployment versions.
 
 Workflow:
-  * GET    /deployments/{id}/versions          -> list all versions, newest first
-  * GET    /deployments/{id}/versions/{n}/hcl  -> raw HCL of that version
-  * GET    /deployments/{id}/versions/{n}/state -> raw tfstate JSON
-  * POST   /deployments/{id}/snapshots         -> pin latest as named snapshot
+  * GET    /deployments/{id}/versions                 -> list all versions
+  * GET    /deployments/{id}/versions/{n}/hcl         -> raw HCL
+  * GET    /deployments/{id}/versions/{n}/state       -> raw tfstate JSON
+  * POST   /deployments/{id}/versions/{n}/pin         -> is_pinned=true
+  * POST   /deployments/{id}/versions/{n}/unpin       -> is_pinned=false (triggers rotation)
+  * POST   /deployments/{id}/snapshots                -> pin latest as named snapshot
 """
 
 from __future__ import annotations
@@ -120,6 +122,44 @@ async def get_version_state(
         logger.error("get_version_state: cannot fetch %s: %s", v.state_key, exc)
         raise HTTPException(status_code=502, detail="Failed to load state from object store")
     return Response(content=data, media_type="application/json")
+
+
+@router.post("/{deployment_id}/versions/{version_num}/pin", response_model=VersionItem)
+async def pin_version(
+    deployment_id: uuid.UUID,
+    version_num: int,
+    db: AsyncSession = Depends(get_db),
+    user: AuthenticatedUser = Depends(_ADMIN_ONLY),
+) -> VersionItem:
+    await _require_deployment(db, deployment_id)
+    try:
+        row = await version_store.set_pinned(db, deployment_id, version_num, True)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    logger.info(
+        "user=%s action=pin deployment=%s v%d",
+        user.username, deployment_id, version_num,
+    )
+    return VersionItem.model_validate(row)
+
+
+@router.post("/{deployment_id}/versions/{version_num}/unpin", response_model=VersionItem)
+async def unpin_version(
+    deployment_id: uuid.UUID,
+    version_num: int,
+    db: AsyncSession = Depends(get_db),
+    user: AuthenticatedUser = Depends(_ADMIN_ONLY),
+) -> VersionItem:
+    await _require_deployment(db, deployment_id)
+    try:
+        row = await version_store.set_pinned(db, deployment_id, version_num, False)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    logger.info(
+        "user=%s action=unpin deployment=%s v%d",
+        user.username, deployment_id, version_num,
+    )
+    return VersionItem.model_validate(row)
 
 
 @router.post("/{deployment_id}/snapshots", response_model=VersionItem, status_code=201)

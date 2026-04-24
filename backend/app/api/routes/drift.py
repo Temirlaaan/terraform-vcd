@@ -188,6 +188,15 @@ async def review_drift_report(
     row.reviewed_by = user.username
     row.reviewed_at = datetime.now(timezone.utc)
 
+    # Option 2-partial: 'ignored' means the drift snapshot is noise that
+    # should be hidden from version history. Tag its snapshot with
+    # label='dismissed' so the UI can filter it out. Only stamp when no
+    # prior label so we don't overwrite apply/rollback/migration labels.
+    if body.resolution == "ignored" and row.version_id:
+        version = await db.get(DeploymentVersion, row.version_id)
+        if version is not None and not version.label:
+            version.label = "dismissed"
+
     # If this was the last outstanding report for the deployment, clear needs_review.
     deployment = await db.get(Deployment, row.deployment_id)
     if deployment is not None:

@@ -56,7 +56,7 @@ def _render_provider_tf(deployment_id: uuid.UUID) -> str:
     from jinja2 import Environment, FileSystemLoader
 
     tpl_dir = (
-        Path(__file__).resolve().parent.parent.parent / "templates" / "migration"
+        Path(__file__).resolve().parent.parent.parent.parent / "templates" / "migration"
     )
     jenv = Environment(
         loader=FileSystemLoader(str(tpl_dir)),
@@ -77,33 +77,22 @@ async def get_deployment_hcl(
     db: AsyncSession = Depends(get_db),
     user: AuthenticatedUser = Depends(_READ_ROLES),
 ) -> str:
-    """Return latest version's main.tf as plaintext."""
+    """Return the deployment's current main.tf as plaintext.
+
+    Source: ``deployment.hcl`` DB column, which is the live draft kept
+    in sync by POST /manual, PUT /spec and migration rebuild. Version
+    snapshots (immutable history) are served via
+    ``/deployments/{id}/versions/{n}/hcl`` instead.
+
+    Before: this endpoint returned the latest ``DeploymentVersion``
+    snapshot from MinIO, which made editor Save appear no-op — versions
+    are only created on successful apply (Phase 3), so PUT /spec edits
+    were invisible in the HCL tab until a Plan+Apply cycle completed.
+    """
     deployment = await db.get(Deployment, deployment_id)
     if deployment is None:
         raise HTTPException(status_code=404, detail="Deployment not found")
-
-    res = await db.execute(
-        select(DeploymentVersion)
-        .where(DeploymentVersion.deployment_id == deployment_id)
-        .order_by(desc(DeploymentVersion.version_num))
-        .limit(1)
-    )
-    latest = res.scalar_one_or_none()
-    if latest is None:
-        raise HTTPException(
-            status_code=404,
-            detail="No version snapshot exists for this deployment yet",
-        )
-
-    try:
-        hcl = await minio_client.get_text(latest.hcl_key)
-    except Exception as exc:
-        logger.exception("Failed to read HCL for deployment %s", deployment_id)
-        raise HTTPException(
-            status_code=410,
-            detail=f"HCL blob missing in MinIO: {exc}",
-        )
-    return hcl
+    return deployment.hcl or ""
 
 
 @router.post("/{deployment_id}/plan", response_model=OperationIdResponse)

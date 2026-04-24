@@ -1,0 +1,19 @@
+{% for route in static_routes %}
+resource "vcd_nsxt_edgegateway_static_route" "{{ route.slug }}" {
+  org             = var.target_org
+  edge_gateway_id = var.target_edge_id
+  name            = "{{ route.name | hcl_escape }}"
+{% if route.description %}
+  description     = "{{ route.description | hcl_escape }}"
+{% endif %}
+  network_cidr    = "{{ route.network_cidr | hcl_escape }}"
+
+{% for hop in route.next_hops %}
+  next_hop {
+    ip_address     = "{{ hop.ip_address | hcl_escape }}"
+    admin_distance = {{ hop.admin_distance }}
+  }
+{% endfor %}
+}
+
+{% endfor %}

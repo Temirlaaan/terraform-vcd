@@ -223,6 +223,28 @@ export function useRollbackConfirm(deploymentId: string) {
   });
 }
 
+export function usePinVersion(deploymentId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      versionNum,
+      pinned,
+    }: {
+      versionNum: number;
+      pinned: boolean;
+    }) => {
+      const action = pinned ? "pin" : "unpin";
+      const { data } = await api.post<DeploymentVersion>(
+        `/api/v1/deployments/${deploymentId}/versions/${versionNum}/${action}`,
+      );
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [LIST_KEY, deploymentId, "versions"] });
+    },
+  });
+}
+
 export function useDeploymentHcl(id: string | undefined) {
   return useQuery<string>({
     queryKey: [LIST_KEY, id, "hcl"],

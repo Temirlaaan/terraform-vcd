@@ -6,6 +6,7 @@ import {
   ArrowLeftRight,
   ArrowRight,
   MoreVertical,
+  Plus,
   Trash2,
   Pencil,
   User,
@@ -398,16 +399,25 @@ export function DeploymentsPage() {
             plan, or apply it.
           </p>
         </div>
-        <button
-          onClick={() => query.refetch()}
-          disabled={query.isFetching}
-          className="flex items-center gap-1.5 rounded-sm border border-clr-border bg-white text-clr-text-secondary hover:text-clr-text hover:border-clr-action text-xs font-medium py-1.5 px-3 disabled:opacity-50"
-        >
-          <RefreshCw
-            className={cn("h-3.5 w-3.5", query.isFetching && "animate-spin")}
-          />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => query.refetch()}
+            disabled={query.isFetching}
+            className="flex items-center gap-1.5 rounded-sm border border-clr-border bg-white text-clr-text-secondary hover:text-clr-text hover:border-clr-action text-xs font-medium py-1.5 px-3 disabled:opacity-50"
+          >
+            <RefreshCw
+              className={cn("h-3.5 w-3.5", query.isFetching && "animate-spin")}
+            />
+            Refresh
+          </button>
+          <Link
+            to="/deployments/new"
+            className="flex items-center gap-1.5 rounded-sm bg-clr-action text-white text-xs font-medium py-1.5 px-3 hover:bg-clr-action-hover"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New Deployment
+          </Link>
+        </div>
       </div>
 
       {query.isLoading ? (

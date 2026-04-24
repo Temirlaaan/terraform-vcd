@@ -1,0 +1,23 @@
+{% for prof in app_port_profiles %}
+resource "vcd_nsxt_app_port_profile" "{{ prof.slug }}" {
+  name        = "{{ prof.name | hcl_escape }}"
+  scope       = "{{ prof.scope }}"
+  org         = var.target_org
+{% if prof.scope == 'TENANT' %}
+  context_id  = var.target_vdc_id
+{% endif %}
+{% if prof.description %}
+  description = "{{ prof.description | hcl_escape }}"
+{% endif %}
+
+{% for port in prof.app_ports %}
+  app_port {
+    protocol = "{{ port.protocol }}"
+{% if port.protocol not in ['ICMPv4', 'ICMPv6'] and port.ports %}
+    port     = [{{ port.ports | map('tojson') | join(', ') }}]
+{% endif %}
+  }
+{% endfor %}
+}
+
+{% endfor %}

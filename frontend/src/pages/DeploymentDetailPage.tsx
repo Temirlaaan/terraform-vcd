@@ -6,6 +6,7 @@ import {
   FileCode2,
   Info,
   Lock,
+  LockOpen,
   RotateCcw,
   Loader2,
   AlertCircle,
@@ -32,6 +33,7 @@ import {
   useDeploymentVersions,
   useRollbackPrepare,
   useRollbackConfirm,
+  usePinVersion,
   useDeploymentHcl,
   useDeploymentPlan,
   useDeploymentApply,
@@ -665,6 +667,8 @@ function VersionsTab({ deploymentId }: { deploymentId: string }) {
     target: number;
   } | null>(null);
   const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [hideDismissed, setHideDismissed] = useState<boolean>(true);
+  const pinMutation = usePinVersion(deploymentId);
 
   const allItems = [...(data?.items ?? [])].sort(
     (a, b) => b.version_num - a.version_num,
@@ -685,7 +689,12 @@ function VersionsTab({ deploymentId }: { deploymentId: string }) {
   ];
   const activeFilter =
     filterGroups.find((g) => g.key === sourceFilter) ?? filterGroups[0];
-  const items = allItems.filter((v) => activeFilter.match(v.source));
+  const items = allItems
+    .filter((v) => activeFilter.match(v.source))
+    .filter((v) => !(hideDismissed && v.label === "dismissed"));
+  const dismissedCount = allItems.filter(
+    (v) => v.label === "dismissed",
+  ).length;
 
   if (isLoading) {
     return (
@@ -756,6 +765,20 @@ function VersionsTab({ deploymentId }: { deploymentId: string }) {
             <GitCompare className="h-3 w-3" />
             Compare versions
           </button>
+          {dismissedCount > 0 && (
+            <label
+              className="inline-flex items-center gap-1.5 text-xs text-clr-text-secondary cursor-pointer select-none"
+              title="Hide drift snapshots that were reviewed as 'Ignore'"
+            >
+              <input
+                type="checkbox"
+                checked={hideDismissed}
+                onChange={(e) => setHideDismissed(e.target.checked)}
+                className="h-3 w-3 accent-clr-action"
+              />
+              Hide dismissed ({dismissedCount})
+            </label>
+          )}
           <button
             onClick={() => refetch()}
             disabled={isFetching}
@@ -799,6 +822,14 @@ function VersionsTab({ deploymentId }: { deploymentId: string }) {
                     {v.is_pinned && (
                       <Lock className="inline-block h-3 w-3 ml-1.5 text-amber-600" />
                     )}
+                    {v.label === "dismissed" && (
+                      <span
+                        className="ml-2 text-[10px] font-sans font-medium text-clr-text-secondary bg-clr-near-white border border-clr-border rounded px-1.5 py-0.5"
+                        title="Drift reviewed as Ignore — snapshot marked dismissed"
+                      >
+                        DISMISSED
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <SourceBadge source={v.source} />
@@ -837,6 +868,28 @@ function VersionsTab({ deploymentId }: { deploymentId: string }) {
                       >
                         <GitCompare className="h-3 w-3" />
                         Diff
+                      </button>
+                      <button
+                        onClick={() =>
+                          pinMutation.mutate({
+                            versionNum: v.version_num,
+                            pinned: !v.is_pinned,
+                          })
+                        }
+                        disabled={pinMutation.isPending}
+                        title={
+                          v.is_pinned
+                            ? "Unpin (allow rotation)"
+                            : "Pin (never rotate)"
+                        }
+                        className="inline-flex items-center gap-1 text-xs text-clr-text-secondary hover:text-amber-700 disabled:opacity-40"
+                      >
+                        {v.is_pinned ? (
+                          <LockOpen className="h-3 w-3" />
+                        ) : (
+                          <Lock className="h-3 w-3" />
+                        )}
+                        {v.is_pinned ? "Unpin" : "Pin"}
                       </button>
                       <button
                         onClick={() => setRollbackTarget(v)}
@@ -1107,6 +1160,7 @@ function DriftReportRow({
               <button
                 onClick={() => onReview("accepted")}
                 disabled={reviewing}
+                title="Drift is expected — keep snapshot in history, clear review flag"
                 className="text-xs text-emerald-700 hover:underline disabled:opacity-50"
               >
                 Accept
@@ -1114,6 +1168,7 @@ function DriftReportRow({
               <button
                 onClick={() => onReview("ignored")}
                 disabled={reviewing}
+                title="Drift is noise — tag snapshot as 'dismissed' and hide from history by default"
                 className="text-xs text-clr-text-secondary hover:underline disabled:opacity-50"
               >
                 Ignore
@@ -1407,8 +1462,12 @@ function HclTab({
         )}
         <button
           onClick={handlePlan}
-          disabled={!dirty || planMut.isPending || applyingOrDone}
-          title={!dirty ? "Edit the HCL to enable Plan" : undefined}
+          disabled={planMut.isPending || applyingOrDone}
+          title={
+            dirty
+              ? "Save HCL changes and run terraform plan"
+              : "Run terraform plan against the current saved HCL"
+          }
           className="flex items-center gap-1.5 rounded-sm bg-clr-action text-white text-xs font-medium px-3 py-1.5 hover:bg-clr-action-hover disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {planMut.isPending ? (
@@ -1460,10 +1519,15 @@ function OverviewTab({ deploymentId }: { deploymentId: string }) {
     );
   }
 
+  const isMigration = d.kind === "migration";
   const rows: [string, string][] = [
     ["Kind", d.kind],
-    ["Source edge", d.source_edge_name],
-    ["Source host", d.source_host],
+    ...(isMigration
+      ? ([
+          ["Source edge", d.source_edge_name],
+          ["Source host", d.source_host],
+        ] as [string, string][])
+      : []),
     ["Target org", d.target_org],
     ["Target VDC", d.target_vdc],
     ["Target edge", d.target_edge_name ?? "—"],
@@ -1492,12 +1556,21 @@ function OverviewTab({ deploymentId }: { deploymentId: string }) {
 
       <div className="flex items-center gap-2 pt-2">
         <Link
-          to={`/migration?deployment=${d.id}`}
-          className="flex items-center gap-1.5 rounded-sm border border-clr-border bg-white text-clr-text hover:border-clr-action text-xs font-medium px-3 py-1.5"
+          to={`/deployments/${d.id}/edit`}
+          className="flex items-center gap-1.5 rounded-sm bg-clr-action text-white text-xs font-medium px-3 py-1.5 hover:bg-clr-action-hover"
         >
           <Pencil className="h-3.5 w-3.5" />
-          Edit in Migration form
+          Edit deployment
         </Link>
+        {d.kind === "migration" && (
+          <Link
+            to={`/migration?deployment=${d.id}`}
+            className="flex items-center gap-1.5 rounded-sm border border-clr-border bg-white text-clr-text hover:border-clr-action text-xs font-medium px-3 py-1.5"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Edit in Migration form
+          </Link>
+        )}
       </div>
     </div>
   );
