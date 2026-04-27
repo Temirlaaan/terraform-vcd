@@ -56,11 +56,25 @@ async def terraform_ws(
         return
 
     async with async_session() as db:
-        result = await db.execute(select(Operation.id).where(Operation.id == op_uuid))
-        if result.scalar_one_or_none() is None:
+        result = await db.execute(
+            select(Operation.id, Operation.user_id).where(Operation.id == op_uuid)
+        )
+        op_row = result.one_or_none()
+        if op_row is None:
             logger.warning("WS operation not found: id=%s user=%s", operation_id, user.username)
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
+        op_user_id = op_row.user_id
+
+    is_admin = "tf-admin" in user.roles
+    is_owner = op_user_id == user.sub
+    if not (is_admin or is_owner):
+        logger.warning(
+            "WS forbidden: user=%s sub=%s operation=%s owner=%s",
+            user.username, user.sub, operation_id, op_user_id,
+        )
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="forbidden")
+        return
 
     logger.info("WS connected: user=%s operation=%s", user.username, operation_id)
     await websocket.accept()
