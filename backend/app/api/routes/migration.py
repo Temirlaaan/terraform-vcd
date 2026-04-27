@@ -122,7 +122,7 @@ async def _ensure_migration_deployment(
     result = await db.execute(
         select(Deployment).where(
             Deployment.target_edge_id == target_edge_id,
-            Deployment.kind == "migration",
+            Deployment.kind == "migrated",
         ).order_by(Deployment.created_at.asc()).limit(1)
     )
     existing = result.scalar_one_or_none()
@@ -180,7 +180,7 @@ async def _ensure_migration_deployment(
     now = datetime.now(timezone.utc)
     dep = Deployment(
         name=_friendly_deployment_name(source_edge_name, now),
-        kind="migration",
+        kind="migrated",
         description=_friendly_description(
             source_edge_name, target_org, target_vdc, target_edge_name
         ),

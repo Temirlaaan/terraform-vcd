@@ -358,3 +358,68 @@ export function useVersionState(
     staleTime: 5 * 60 * 1000,
   });
 }
+
+/* ------------------------------------------------------------------ */
+/*  Import existing edge                                              */
+/* ------------------------------------------------------------------ */
+
+export interface AvailableEdge {
+  id: string;
+  name: string;
+  vdc_name: string | null;
+  gateway_type: string | null;
+  deployed: boolean;
+  deployment_id: string | null;
+  deployment_kind: string | null;
+}
+
+export interface AvailableEdgesResponse {
+  items: AvailableEdge[];
+  count: number;
+}
+
+export function useAvailableEdges(
+  vdcId?: string | null,
+  enabled = true,
+) {
+  return useQuery<AvailableEdgesResponse>({
+    queryKey: [LIST_KEY, "available-edges", { vdc_id: vdcId ?? null }],
+    queryFn: async () => {
+      const params: Record<string, string> = {};
+      if (vdcId) params.vdc_id = vdcId;
+      const { data } = await api.get<AvailableEdgesResponse>(
+        "/api/v1/deployments/available-edges",
+        { params },
+      );
+      return data;
+    },
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export interface DeploymentImportRequest {
+  name?: string | null;
+  description?: string | null;
+  target_org: string;
+  target_vdc: string;
+  target_vdc_id: string;
+  target_edge_id: string;
+  target_edge_name?: string | null;
+}
+
+export function useImportEdge() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: DeploymentImportRequest) => {
+      const { data } = await api.post<Deployment>(
+        "/api/v1/deployments/import",
+        body,
+      );
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [LIST_KEY] });
+    },
+  });
+}

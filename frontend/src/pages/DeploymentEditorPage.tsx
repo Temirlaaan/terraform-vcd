@@ -1127,7 +1127,7 @@ export function DeploymentEditorPage() {
     .filter(Boolean);
 
   const kind = editorQuery.data?.kind;
-  const isMigrationKind = kind === "migration";
+  const isMigrationKind = kind === "migrated";
 
   const duplicateNames = useMemo(() => {
     const out: { category: string; name: string }[] = [];

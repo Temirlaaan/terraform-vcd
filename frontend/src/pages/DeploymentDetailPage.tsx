@@ -1674,7 +1674,7 @@ function OverviewTab({ deploymentId }: { deploymentId: string }) {
     );
   }
 
-  const isMigration = d.kind === "migration";
+  const isMigration = d.kind === "migrated";
   const rows: [string, string][] = [
     ["Kind", d.kind],
     ...(isMigration
@@ -1717,7 +1717,7 @@ function OverviewTab({ deploymentId }: { deploymentId: string }) {
           <Pencil className="h-3.5 w-3.5" />
           Edit deployment
         </Link>
-        {d.kind === "migration" && (
+        {d.kind === "migrated" && (
           <Link
             to={`/migration?deployment=${d.id}`}
             className="flex items-center gap-1.5 rounded-sm border border-clr-border bg-white text-clr-text hover:border-clr-action text-xs font-medium px-3 py-1.5"

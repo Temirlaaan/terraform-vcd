@@ -260,7 +260,7 @@ async def create_manual_deployment(
 
     deployment = Deployment(
         name=body.name.strip(),
-        kind="manual",
+        kind="manual_created",
         description=description,
         source_host="",
         source_edge_uuid="",
