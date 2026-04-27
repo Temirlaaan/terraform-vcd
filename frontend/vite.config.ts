@@ -2,19 +2,20 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
-// HMR temporarily disabled to test Keycloak callback flicker hypothesis.
-// Backup at vite.config.ts.bak.
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  server: {
-    port: 5173,
-    host: "0.0.0.0",
-    allowedHosts: ["tf-dashboard.t-cloud.kz", "localhost"],
-    hmr: false,
-  },
-});
+  ...(mode === "development"
+    ? {
+        server: {
+          port: 5173,
+          host: "0.0.0.0",
+          allowedHosts: ["tf-dashboard.t-cloud.kz", "localhost"],
+        },
+      }
+    : {}),
+}));

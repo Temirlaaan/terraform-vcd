@@ -58,3 +58,4 @@ docker-compose.override.yml
 *.bak[0-9]*
 backend/dbg*.py
 backend/import_*.py
+.secbak/

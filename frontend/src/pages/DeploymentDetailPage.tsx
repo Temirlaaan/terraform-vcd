@@ -690,7 +690,7 @@ function VersionsTab({ deploymentId }: { deploymentId: string }) {
     { key: "rollback", label: "Rollback", match: (s) => s === "rollback" },
   ];
   const activeFilter =
-    filterGroups.find((g) => g.key === sourceFilter) ?? filterGroups[0];
+    filterGroups.find((g) => g.key === sourceFilter) ?? filterGroups[0]!;
   const items = allItems
     .filter((v) => activeFilter.match(v.source))
     .filter((v) => !(hideDismissed && v.label === "dismissed"));
