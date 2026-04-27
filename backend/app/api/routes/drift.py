@@ -185,6 +185,7 @@ async def review_drift_report(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Report has terminal resolution: {row.resolution}",
         )
+    deployment = await db.get(Deployment, row.deployment_id)
     row.resolution = body.resolution
     row.reviewed_by = user.username
     row.reviewed_at = datetime.now(timezone.utc)
@@ -237,7 +238,6 @@ async def review_drift_report(
             version.label = "dismissed"
 
     # If this was the last outstanding report for the deployment, clear needs_review.
-    deployment = await db.get(Deployment, row.deployment_id)
     if deployment is not None:
         pending = await db.execute(
             select(DriftReport.id)
