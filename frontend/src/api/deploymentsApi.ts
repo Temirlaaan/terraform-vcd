@@ -288,6 +288,41 @@ export function useDeploymentApply(deploymentId: string) {
   });
 }
 
+export interface OrphanScanResult {
+  removed: string[];
+  kept: string[];
+  errors: string[];
+}
+
+export function useOrphanScan(deploymentId: string | undefined) {
+  return useQuery<OrphanScanResult>({
+    queryKey: [LIST_KEY, deploymentId, "orphans"],
+    queryFn: async () => {
+      const { data } = await api.get<OrphanScanResult>(
+        `/api/v1/deployments/${deploymentId}/state/orphans`,
+      );
+      return data;
+    },
+    enabled: !!deploymentId,
+  });
+}
+
+export function useCleanupOrphans(deploymentId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post<OrphanScanResult>(
+        `/api/v1/deployments/${deploymentId}/state/cleanup-orphans`,
+      );
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [LIST_KEY, deploymentId, "orphans"] });
+      qc.invalidateQueries({ queryKey: [LIST_KEY, deploymentId, "hcl"] });
+    },
+  });
+}
+
 export function useVersionHcl(
   deploymentId: string | undefined,
   versionNum: number | undefined,

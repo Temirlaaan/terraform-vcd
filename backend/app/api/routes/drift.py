@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import AuthenticatedUser, require_roles
+from app.core import minio_client
 from app.database import get_db
 from app.jobs.drift_sync import sync_deployment
 from app.models.deployment import Deployment
@@ -187,6 +188,44 @@ async def review_drift_report(
     row.resolution = body.resolution
     row.reviewed_by = user.username
     row.reviewed_at = datetime.now(timezone.utc)
+
+    # Accepting drift means the new state + HCL rebuilt by drift sync is
+    # the truth going forward. Two side-effects needed here:
+    #
+    # 1. Drop the editor spec (spec.json in MinIO) — it predates the
+    #    drift import and would make the editor show a stale rule list.
+    #    The next editor-data call falls back to the state parser.
+    # 2. Promote the drift version's HCL into ``deployment.hcl`` (the
+    #    live draft). Without this, HCL tab and the orphan-state scan
+    #    keep working off the pre-drift HCL, which makes legitimate
+    #    drift-imported resources look like orphans and risks a
+    #    ``terraform state rm`` on a real managed resource.
+    if body.resolution == "accepted":
+        try:
+            await minio_client.delete_key(
+                f"deployments/{row.deployment_id}/current/spec.json"
+            )
+        except Exception:
+            logger.exception(
+                "drift-accept: failed to invalidate spec.json deployment=%s",
+                row.deployment_id,
+            )
+        if row.version_id and deployment is not None:
+            version = await db.get(DeploymentVersion, row.version_id)
+            if version is not None:
+                try:
+                    new_hcl = await minio_client.get_text(version.hcl_key)
+                    deployment.hcl = new_hcl
+                    deployment.updated_at = datetime.now(timezone.utc)
+                    logger.info(
+                        "drift-accept: promoted version=%s hcl to deployment=%s",
+                        version.id, row.deployment_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "drift-accept: failed to load version hcl version=%s deployment=%s",
+                        version.id, row.deployment_id,
+                    )
 
     # Option 2-partial: 'ignored' means the drift snapshot is noise that
     # should be hidden from version history. Tag its snapshot with

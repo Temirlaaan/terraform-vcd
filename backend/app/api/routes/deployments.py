@@ -314,13 +314,20 @@ async def update_deployment_spec(
         raise HTTPException(status_code=404, detail="Deployment not found")
 
     spec_target = body.spec.target
-    if spec_target.edge_id != deployment.target_edge_id:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "spec.target.edge_id does not match deployment target. "
-                "Create a new deployment to change target edge."
-            ),
+    target_changed = spec_target.edge_id != deployment.target_edge_id
+    if target_changed:
+        # Allowed but risky: usually means an edge was recreated in VCD
+        # under a fresh URN while keeping the same name, so the caller
+        # re-pointed the deployment. Log loudly and update the DB row.
+        # State align runs afterwards against the new edge key, so any
+        # resource whose edge_gateway_id is tied to the old URN will
+        # surface as destroy+create on the next Plan (expected).
+        logger.warning(
+            "user=%s action=deployment_spec_target_change id=%s old=%s new=%s",
+            user.username,
+            deployment.id,
+            deployment.target_edge_id,
+            spec_target.edge_id,
         )
 
     old_hcl = deployment.hcl or ""
@@ -332,6 +339,16 @@ async def update_deployment_spec(
         deployment.target_vdc_id = spec_target.vdc_id
     if spec_target.edge_name and not deployment.target_edge_name:
         deployment.target_edge_name = spec_target.edge_name
+    if target_changed:
+        deployment.target_edge_id = spec_target.edge_id
+        if spec_target.edge_name:
+            deployment.target_edge_name = spec_target.edge_name
+        if spec_target.vdc_id:
+            deployment.target_vdc_id = spec_target.vdc_id
+        if spec_target.org:
+            deployment.target_org = spec_target.org
+        if spec_target.vdc:
+            deployment.target_vdc = spec_target.vdc
     deployment.updated_at = datetime.now(timezone.utc)
 
     await db.commit()

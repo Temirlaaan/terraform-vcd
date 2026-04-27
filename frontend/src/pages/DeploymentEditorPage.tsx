@@ -939,18 +939,69 @@ function TargetPicker({
     [vdcs.data, target.vdc, target.vdc_id]
   );
   const edges = useEdgeGatewaysByVdc(selectedVdc?.id);
+  const [manualMode, setManualMode] = useState(false);
 
   return (
     <section className="border border-clr-border rounded-sm bg-white p-3 space-y-3">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-clr-text">
-        Target
-      </h2>
-      {disabled && (
+      <div className="flex items-center justify-between">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-clr-text">
+          Target
+        </h2>
+        <button
+          type="button"
+          onClick={() => setManualMode((v) => !v)}
+          className="text-[11px] text-clr-action hover:underline"
+        >
+          {manualMode ? "Use pickers" : "Edit raw IDs"}
+        </button>
+      </div>
+      {manualMode && (
+        <div className="rounded-sm border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900 space-y-2">
+          <div className="font-medium">Raw ID override</div>
+          <div className="opacity-80">
+            Edit target fields directly. Useful when an edge was
+            recreated in VCD under a new URN but the deployment still
+            holds the old one. The next Save will update the stored
+            target and resources tied to the old edge_gateway_id will
+            show as destroy+create on the next Plan.
+          </div>
+          <FormInput
+            label="Org name"
+            value={target.org}
+            onChange={(v) => onChange({ ...target, org: v })}
+          />
+          <FormInput
+            label="VDC name"
+            value={target.vdc}
+            onChange={(v) => onChange({ ...target, vdc: v })}
+          />
+          <FormInput
+            label="VDC id (urn:vcloud:vdc:...)"
+            value={target.vdc_id}
+            onChange={(v) => onChange({ ...target, vdc_id: v })}
+          />
+          <FormInput
+            label="Edge gateway id (urn:vcloud:gateway:...)"
+            value={target.edge_id}
+            onChange={(v) => onChange({ ...target, edge_id: v })}
+          />
+          <FormInput
+            label="Edge gateway name"
+            value={target.edge_name ?? ""}
+            onChange={(v) =>
+              onChange({ ...target, edge_name: v.trim() ? v : null })
+            }
+          />
+        </div>
+      )}
+      {!manualMode && disabled && (
         <p className="text-[11px] text-clr-text-secondary">
-          Target is locked — editing rules only. Create a new deployment to
-          change target edge.
+          Target is locked — editing rules only. Use "Edit raw IDs" to
+          override edge gateway or VDC manually.
         </p>
       )}
+      {!manualMode && (
+      <>
       <FormSelect
         label="Organization"
         value={selectedOrg?.id ?? ""}
@@ -1026,6 +1077,8 @@ function TargetPicker({
         disabled={disabled || !selectedVdc}
         placeholder={selectedVdc ? "Select edge..." : "Select VDC first"}
       />
+      </>
+      )}
     </section>
   );
 }

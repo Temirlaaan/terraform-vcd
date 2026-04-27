@@ -161,11 +161,28 @@ async def snapshot_version(
         await db.commit()
     except IntegrityError:
         await db.rollback()
+        # UNIQUE(deployment_id, state_hash) was hit by a non-latest row
+        # (latest was already ruled out by the earlier dedup check). This
+        # means the apply rewound state to a shape that a prior version
+        # already has — e.g. destroy of just-added resources returns
+        # state to v(N-k) hash. Still want the event in history, so retry
+        # with a suffixed hash (same trick as force_new).
+        import time as _time
+        row.state_hash = f"{state_hash}:{source}:{int(_time.time()*1000)}"
+        db.add(row)
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            logger.info(
+                "snapshot dedup race: deployment=%s state_hash collision after suffix, skipping",
+                deployment_id,
+            )
+            return None
         logger.info(
-            "snapshot dedup race: deployment=%s state_hash collision, skipping",
-            deployment_id,
+            "snapshot: state_hash collided with prior version, inserted v%d with suffixed hash deployment=%s",
+            next_num, deployment_id,
         )
-        return None
 
     await db.refresh(row)
     logger.info(

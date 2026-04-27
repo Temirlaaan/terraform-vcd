@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import AuthenticatedUser, require_roles
 from app.core import minio_client, version_store
+from app.core.deployment_state_align import scan_and_remove_orphans
 from app.core.locking import acquire_org_lock, release_org_lock, get_org_lock_holder
 from app.core.tf_workspace import TerraformWorkspace
 from app.database import get_db
@@ -236,3 +237,81 @@ async def deployment_apply(
         version_user=user.username,
     ))
     return OperationIdResponse(operation_id=apply_id)
+
+
+class OrphanScanResponse(BaseModel):
+    removed: list[str]
+    kept: list[str]
+    errors: list[str]
+
+
+@router.get("/{deployment_id}/state/orphans", response_model=OrphanScanResponse)
+async def scan_orphan_state(
+    deployment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: AuthenticatedUser = Depends(_EDIT_ROLES),  # noqa: ARG001
+) -> OrphanScanResponse:
+    """List state addresses that are not declared in the current HCL.
+
+    Read-only: runs ``terraform state list`` and compares against
+    addresses parsed from ``deployment.hcl``. Does not mutate state.
+    Useful to preview what a cleanup would remove.
+    """
+    deployment = await db.get(Deployment, deployment_id)
+    if deployment is None:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+
+    removed, kept, errors = await scan_and_remove_orphans(
+        deployment.id,
+        deployment.target_org,
+        deployment.hcl or "",
+        dry_run=True,
+    )
+    return OrphanScanResponse(removed=removed, kept=kept, errors=errors)
+
+
+@router.post("/{deployment_id}/state/cleanup-orphans", response_model=OrphanScanResponse)
+async def cleanup_orphan_state(
+    deployment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: AuthenticatedUser = Depends(_EDIT_ROLES),
+) -> OrphanScanResponse:
+    """Remove state entries whose address is not declared in the current HCL.
+
+    ``terraform state rm`` only drops the state<->resource mapping; the
+    real VCD resource is not touched. Safe to run when the same URN is
+    tracked by a different address elsewhere in state (the common case
+    for migration-era slugs that were already re-imported under the
+    editor's naming scheme).
+
+    Takes the org lock to avoid races with plan/apply.
+    """
+    deployment = await db.get(Deployment, deployment_id)
+    if deployment is None:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+
+    org_name = deployment.target_org
+    op_id = str(uuid.uuid4())
+    locked = await acquire_org_lock(org_name, op_id)
+    if not locked:
+        holder = await get_org_lock_holder(org_name)
+        raise HTTPException(
+            status_code=409,
+            detail=f"Organisation '{org_name}' locked by operation {holder}",
+        )
+
+    try:
+        removed, kept, errors = await scan_and_remove_orphans(
+            deployment.id,
+            org_name,
+            deployment.hcl or "",
+            dry_run=False,
+        )
+    finally:
+        await release_org_lock(org_name, op_id)
+
+    logger.info(
+        "user=%s action=cleanup_orphan_state deployment=%s removed=%d kept=%d errors=%d",
+        user.username, deployment_id, len(removed), len(kept), len(errors),
+    )
+    return OrphanScanResponse(removed=removed, kept=kept, errors=errors)

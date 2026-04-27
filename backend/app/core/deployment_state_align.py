@@ -72,7 +72,7 @@ def _render_provider_tf(deployment_id: uuid.UUID) -> str:
     from jinja2 import Environment, FileSystemLoader
 
     tpl_dir = (
-        Path(__file__).resolve().parent.parent / "templates" / "migration"
+        Path(__file__).resolve().parent.parent.parent / "templates" / "migration"
     )
     jenv = Environment(
         loader=FileSystemLoader(str(tpl_dir)),
@@ -173,5 +173,87 @@ async def align_state_to_hcl(
                     f"state mv failed for {old_addr} -> {new_addr}: {result.stderr[:500]}"
                 )
         return applied, errors
+    finally:
+        workspace.cleanup()
+
+
+def _addresses_from_hcl(hcl: str) -> set[str]:
+    """All ``tf_type.tf_label`` addresses declared in the HCL."""
+    return {r.address for r in parse_hcl_resources(hcl)}
+
+
+async def scan_and_remove_orphans(
+    deployment_id: uuid.UUID,
+    org_name: str,
+    current_hcl: str,
+    dry_run: bool = False,
+) -> tuple[list[str], list[str], list[str]]:
+    """Remove state entries whose address is not declared in the current HCL.
+
+    Typical cause: a migration-era deployment whose HCL was rebuilt with
+    new slugs (``tcp_53`` -> ``ttc_fw_tcp_53``) while Phase 2 preapply
+    imported the new addresses without removing the old ones. Result is
+    state with duplicate tracking of the same real resource. Removing the
+    orphan address is safe: the real resource is still tracked by the
+    new address, and state rm only forgets the mapping — VCD is not
+    touched.
+
+    Returns ``(removed, kept, errors)`` — ``kept`` lists addresses that
+    are present in state and in HCL (left untouched).
+    """
+    operation_id = uuid.uuid4()
+    workspace = TerraformWorkspace(org_name, operation_id)
+    workspace.work_dir.mkdir(parents=True, exist_ok=True)
+
+    (workspace.work_dir / "main.tf").write_text(current_hcl, encoding="utf-8")
+    (workspace.work_dir / "provider.tf").write_text(
+        _render_provider_tf(deployment_id), encoding="utf-8"
+    )
+
+    runner = TerraformRunner(workspace.work_dir, operation_id=str(operation_id))
+
+    removed: list[str] = []
+    kept: list[str] = []
+    errors: list[str] = []
+    try:
+        init_result = await runner.init()
+        if not init_result.success:
+            msg = f"orphan-scan init failed: {init_result.stderr[:500]}"
+            logger.warning(msg)
+            return [], [], [msg]
+
+        state_list = await runner._exec(
+            "state", "list", "-no-color", emit_exit=False
+        )
+        if not state_list.success:
+            msg = f"state list failed: {state_list.stderr[:500]}"
+            logger.warning(msg)
+            return [], [], [msg]
+
+        managed = [
+            a for a in state_list.stdout.strip().splitlines() if a
+        ]
+        declared = _addresses_from_hcl(current_hcl)
+
+        for addr in managed:
+            if addr in declared:
+                kept.append(addr)
+                continue
+            if dry_run:
+                removed.append(addr)
+                continue
+            result = await runner._exec(
+                "state", "rm", "-no-color", addr, emit_exit=False
+            )
+            if result.success:
+                logger.info(
+                    "orphan-cleanup: rm %s deployment=%s", addr, deployment_id
+                )
+                removed.append(addr)
+            else:
+                errors.append(
+                    f"state rm failed for {addr}: {result.stderr[:500]}"
+                )
+        return removed, kept, errors
     finally:
         workspace.cleanup()

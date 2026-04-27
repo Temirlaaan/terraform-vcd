@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useMemo, useRef, useState, useEffect, type ReactNode } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -37,6 +37,8 @@ import {
   useDeploymentHcl,
   useDeploymentPlan,
   useDeploymentApply,
+  useOrphanScan,
+  useCleanupOrphans,
   useVersionHcl,
   useVersionState,
   type DeploymentVersion,
@@ -1292,6 +1294,61 @@ function Section({
 /*  HCL tab                                                            */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Textarea + synced line-number gutter. Scroll on the textarea mirrors
+ * into the gutter via ``scrollTop`` on each event. Font metrics
+ * (family / size / line-height) are kept identical on both sides so
+ * the number always lines up with its row.
+ */
+function HclEditorWithGutter({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const gutterRef = useRef<HTMLPreElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const lineCount = useMemo(() => {
+    if (!value) return 1;
+    return value.split("\n").length;
+  }, [value]);
+
+  const gutterText = useMemo(
+    () => Array.from({ length: lineCount }, (_, i) => i + 1).join("\n"),
+    [lineCount],
+  );
+
+  const handleScroll = () => {
+    const ta = textareaRef.current;
+    const g = gutterRef.current;
+    if (ta && g) {
+      g.scrollTop = ta.scrollTop;
+    }
+  };
+
+  return (
+    <div className="flex h-[500px] w-full rounded-sm border border-clr-border bg-slate-900 overflow-hidden font-mono text-[12px] leading-relaxed">
+      <pre
+        ref={gutterRef}
+        aria-hidden
+        className="select-none overflow-hidden py-3 pl-2 pr-2 text-right text-slate-500 bg-slate-800/60 border-r border-slate-700 min-w-[3rem]"
+      >
+        {gutterText}
+      </pre>
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onScroll={handleScroll}
+        spellCheck={false}
+        className="flex-1 py-3 pl-3 pr-3 bg-slate-900 text-slate-100 focus:outline-none resize-none overflow-auto"
+      />
+    </div>
+  );
+}
+
 function HclTab({
   deploymentId,
   onGoToDrift,
@@ -1307,6 +1364,8 @@ function HclTab({
 
   const planMut = useDeploymentPlan(deploymentId);
   const applyMut = useDeploymentApply(deploymentId);
+  const orphanScan = useOrphanScan(deploymentId);
+  const cleanupMut = useCleanupOrphans(deploymentId);
 
   const planStatus = useConfigStore((s) => s.planStatus);
   const currentOp = useConfigStore((s) => s.currentOperationId);
@@ -1314,6 +1373,7 @@ function HclTab({
   const openTerminal = useConfigStore((s) => s.openTerminal);
 
   const [planOpId, setPlanOpId] = useState<string | null>(null);
+  const [orphanDialogOpen, setOrphanDialogOpen] = useState(false);
 
   useEffect(() => {
     if (remoteHcl !== undefined && !dirty) {
@@ -1427,11 +1487,106 @@ function HclTab({
         </div>
       </div>
 
-      <textarea
+      {orphanScan.data && orphanScan.data.removed.length > 0 && (
+        <div className="flex items-start gap-2 rounded-sm border border-amber-300 bg-amber-50 p-2">
+          <AlertTriangle className="h-4 w-4 text-amber-700 flex-none mt-0.5" />
+          <div className="flex-1 text-xs text-amber-900 space-y-1">
+            <div className="font-medium">
+              {orphanScan.data.removed.length} orphan state{" "}
+              {orphanScan.data.removed.length === 1 ? "entry" : "entries"} detected
+            </div>
+            <div className="text-[11px] opacity-80">
+              These addresses exist in Terraform state but not in the
+              current HCL — typically leftover migration-era slugs that
+              now duplicate-track resources already managed under new
+              names. Cleaning them prevents spurious destroy+create on
+              the next Plan. <code>terraform state rm</code> does not
+              touch VCD.
+            </div>
+            <div className="font-mono text-[10px] break-all">
+              {orphanScan.data.removed.slice(0, 6).join(", ")}
+              {orphanScan.data.removed.length > 6 &&
+                ` +${orphanScan.data.removed.length - 6} more`}
+            </div>
+          </div>
+          <button
+            onClick={() => setOrphanDialogOpen(true)}
+            className="flex-none text-xs font-medium text-amber-800 hover:text-amber-900 underline"
+          >
+            Clean
+          </button>
+        </div>
+      )}
+
+      {orphanDialogOpen && orphanScan.data && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+          onClick={() => !cleanupMut.isPending && setOrphanDialogOpen(false)}
+        >
+          <div
+            className="bg-white rounded-sm border border-clr-border p-4 max-w-lg w-full space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-clr-text">
+              Remove {orphanScan.data.removed.length} orphan state entries?
+            </h3>
+            <p className="text-xs text-clr-text-secondary">
+              <code>terraform state rm</code> will run for each address
+              below. Real VCD resources are not affected — only the
+              state mapping is removed.
+            </p>
+            <div className="max-h-48 overflow-auto rounded-sm bg-slate-50 border border-clr-border p-2 font-mono text-[11px] space-y-0.5">
+              {orphanScan.data.removed.map((a) => (
+                <div key={a}>{a}</div>
+              ))}
+            </div>
+            {cleanupMut.isError && (
+              <p className="text-xs text-clr-danger">
+                {getErrorMessage(cleanupMut.error)}
+              </p>
+            )}
+            {cleanupMut.data && cleanupMut.data.errors.length > 0 && (
+              <div className="rounded-sm border border-clr-danger/30 bg-red-50 p-2 text-[11px] text-clr-danger space-y-0.5">
+                {cleanupMut.data.errors.map((e, i) => (
+                  <div key={i}>{e}</div>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setOrphanDialogOpen(false)}
+                disabled={cleanupMut.isPending}
+                className="rounded-sm px-3 py-1.5 text-xs text-clr-text-secondary hover:text-clr-text disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await cleanupMut.mutateAsync();
+                    if (res.errors.length === 0) {
+                      setOrphanDialogOpen(false);
+                    }
+                  } catch {
+                    /* error shown via cleanupMut.error */
+                  }
+                }}
+                disabled={cleanupMut.isPending}
+                className="flex items-center gap-1.5 rounded-sm bg-amber-600 text-white text-xs font-medium px-3 py-1.5 hover:bg-amber-700 disabled:opacity-50"
+              >
+                {cleanupMut.isPending && (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                )}
+                Remove orphans
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <HclEditorWithGutter
         value={draft}
-        onChange={(e) => onChange(e.target.value)}
-        spellCheck={false}
-        className="w-full h-[500px] font-mono text-[12px] leading-relaxed p-3 bg-slate-900 text-slate-100 border border-clr-border rounded-sm focus:outline-none focus:border-clr-action resize-none"
+        onChange={onChange}
       />
 
       {planMut.isError && (
