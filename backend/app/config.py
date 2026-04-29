@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 
 
 class Settings(BaseSettings):
@@ -16,6 +17,14 @@ class Settings(BaseSettings):
 
     # Authentication — set to true to disable Keycloak auth (for testing only!)
     auth_disabled: bool = False
+
+    # Deployment environment — "dev" allows AUTH_DISABLED on localhost; "prod"
+    # refuses AUTH_DISABLED unconditionally (startup panic). Defaults to dev.
+    tf_env: str = "dev"
+
+    # Hostname the dashboard is reachable at — used by AUTH_DISABLED guardrail
+    # and CORS validation.
+    dashboard_hostname: str = "localhost"
 
     # Keycloak
     keycloak_url: str = ""
@@ -63,8 +72,34 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> list[str]:
-        """Parse comma-separated CORS origins into a list."""
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        """Parse comma-separated CORS origins into a list.
+
+        Rejects wildcards / null / wildcard subdomains — explicit origins only.
+        Empty list when input is malformed (caller decides what to do).
+        """
+        out: list[str] = []
+        for raw in self.cors_origins.split(","):
+            o = raw.strip()
+            if not o:
+                continue
+            if o in ("*", "null") or o.startswith("*.") or "*" in o:
+                raise ValueError(
+                    f"CORS origin {o!r} is wildcard/null — refused. "
+                    "List explicit https URLs in CORS_ORIGINS."
+                )
+            if not (o.startswith("http://") or o.startswith("https://")):
+                raise ValueError(
+                    f"CORS origin {o!r} must start with http:// or https://"
+                )
+            out.append(o)
+        return out
+
+    @field_validator("tf_env")
+    @classmethod
+    def _check_env(cls, v: str) -> str:
+        if v not in ("dev", "prod"):
+            raise ValueError("TF_ENV must be 'dev' or 'prod'")
+        return v
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

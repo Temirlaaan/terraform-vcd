@@ -137,7 +137,8 @@ async def _decode_token(token: str) -> dict[str, Any]:
             rsa_key,
             algorithms=["RS256"],
             issuer=issuer,
-            options={"verify_at_hash": False, "verify_aud": False},
+            audience=settings.keycloak_client_id,
+            options={"verify_at_hash": False, "verify_aud": True},
         )
     except JWTError as exc:
         raise HTTPException(
@@ -145,15 +146,11 @@ async def _decode_token(token: str) -> dict[str, Any]:
             detail=f"Token validation failed: {exc}",
         )
 
-    # Accept either "account" (default PUBLIC client behaviour) or the client id
-    # (confidential clients with an Audience mapper).
-    aud = payload.get("aud")
-    aud_list = aud if isinstance(aud, list) else [aud] if aud else []
-    accepted = {"account", settings.keycloak_client_id}
-    if not (set(aud_list) & accepted):
+    azp = payload.get("azp")
+    if azp != settings.keycloak_client_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token audience: {aud}",
+            detail=f"Invalid authorized party (azp): {azp}",
         )
 
     return payload

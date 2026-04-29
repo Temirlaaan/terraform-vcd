@@ -26,8 +26,32 @@ from app import models  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0"}
+
+
+def _enforce_auth_disabled_guardrail() -> None:
+    """Refuse to start if AUTH_DISABLED is on a production-looking host.
+
+    Allowed only when TF_ENV=dev AND DASHBOARD_HOSTNAME is localhost.
+    """
+    if not settings.auth_disabled:
+        return
+    if settings.tf_env != "dev" or settings.dashboard_hostname not in _LOCAL_HOSTS:
+        raise RuntimeError(
+            "AUTH_DISABLED=true refused: requires TF_ENV=dev AND "
+            f"DASHBOARD_HOSTNAME in {_LOCAL_HOSTS}. "
+            f"Got TF_ENV={settings.tf_env!r} "
+            f"DASHBOARD_HOSTNAME={settings.dashboard_hostname!r}."
+        )
+    logger.warning(
+        "AUTH_DISABLED=true active (dev mode on %s). All requests run as anonymous admin.",
+        settings.dashboard_hostname,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _enforce_auth_disabled_guardrail()
     logger.info("Application starting up — running Base.metadata.create_all()")
     try:
         async with engine.begin() as conn:
@@ -60,8 +84,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 app.include_router(terraform_router, prefix="/api/v1")
