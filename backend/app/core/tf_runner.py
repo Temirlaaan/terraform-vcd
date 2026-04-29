@@ -88,14 +88,21 @@ class TerraformRunner:
         redis: Redis | None,
         channel: str,
     ) -> None:
-        """Read an asyncio stream line-by-line, publish each line."""
+        """Read an asyncio stream line-by-line, publish each line.
+
+        The line is redacted before both at-rest collection and pub/sub
+        emission so live WS subscribers and the eventual Operation row
+        see the same scrubbed text (H6-BE).
+        """
         if stream is None:
             return
+        from app.core.redact import redact  # local import to avoid cycle
         while True:
             raw = await stream.readline()
             if not raw:
                 break
             line = raw.decode("utf-8", errors="replace").rstrip("\n")
+            line = redact(line) or ""
             collected.append(line)
             if redis:
                 await redis.publish(channel, f"[{label}] {line}")

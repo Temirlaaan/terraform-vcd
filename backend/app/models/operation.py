@@ -60,3 +60,26 @@ class Operation(Base):
     )
     target_edge_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     rollback_from_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+# ---------------------------------------------------------------------------
+#  Sensitive-string redaction (H6-BE)
+# ---------------------------------------------------------------------------
+#
+# Terraform stderr can contain VCD provider URLs with embedded basic-auth,
+# AWS_* env-var dumps, password=... query strings, and Bearer tokens from
+# refresh failures. Redact at the model layer so every Operation row stored
+# in Postgres — and every code path reading it — sees the same scrubbed text.
+
+from sqlalchemy import event  # noqa: E402
+
+from app.core.redact import redact  # noqa: E402
+
+
+def _redact_operation(_mapper, _connection, target: "Operation") -> None:
+    target.error_message = redact(target.error_message)
+    target.plan_output = redact(target.plan_output)
+
+
+event.listen(Operation, "before_insert", _redact_operation)
+event.listen(Operation, "before_update", _redact_operation)
