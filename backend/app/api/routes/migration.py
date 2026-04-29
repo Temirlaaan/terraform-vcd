@@ -25,7 +25,10 @@ from app.migration.generator import MigrationHCLGenerator
 from app.migration.normalizer import normalize_edge_snapshot
 from app.models.deployment import Deployment
 from app.models.operation import Operation, OperationStatus, OperationType
+from app.core import vcd_handle
 from app.schemas.migration import (
+    AuthHandleRequest,
+    AuthHandleResponse,
     MigrationApplyRequest,
     MigrationPlanRequest,
     MigrationPlanResponse,
@@ -233,6 +236,25 @@ def _build_summary(normalized: dict) -> MigrationSummary:
     )
 
 
+@router.post("/auth-handle", response_model=AuthHandleResponse)
+async def create_auth_handle(
+    body: AuthHandleRequest,
+    user: AuthenticatedUser = Depends(require_roles("tf-admin", "tf-operator")),
+) -> AuthHandleResponse:
+    """Exchange a legacy-VCD api_token for a short-lived opaque handle.
+
+    The handle (UUID v4, Redis-backed, TTL 600s) replaces direct token
+    storage in browser sessionStorage. Subsequent /generate calls
+    reference the handle in place of ``api_token``. H3-FE.
+    """
+    logger.info(
+        "user=%s action=migration_auth_handle host=%s",
+        user.username, body.host,
+    )
+    handle = await vcd_handle.store(host=body.host, api_token=body.api_token)
+    return AuthHandleResponse(handle=handle, expires_in=vcd_handle.HANDLE_TTL_SECONDS)
+
+
 @router.post("/generate", response_model=MigrationResponse)
 async def generate_migration_hcl(
     body: MigrationRequest,
@@ -241,16 +263,33 @@ async def generate_migration_hcl(
     """Fetch edge config from legacy VCD, normalize, and generate HCL.
 
     Full pipeline: fetch XML → normalize → generate HCL → return.
+    Auth: prefers ``handle`` (Redis-backed, browser doesn't hold the
+    raw token); falls back to direct ``api_token`` for backwards compat.
     """
+    # Resolve handle -> (host, api_token) when present.
+    if body.handle:
+        payload = await vcd_handle.resolve(body.handle)
+        if payload is None:
+            raise HTTPException(
+                status_code=401,
+                detail="VCD auth handle expired or unknown — re-enter credentials.",
+            )
+        effective_host = payload.host
+        effective_token = payload.api_token
+    else:
+        effective_host = body.host or ""
+        effective_token = body.api_token or ""
+
     logger.info(
-        "user=%s action=migration_generate edge_uuid=%s host=%s",
-        user.username, body.edge_uuid, body.host,
+        "user=%s action=migration_generate edge_uuid=%s host=%s auth=%s",
+        user.username, body.edge_uuid, effective_host,
+        "handle" if body.handle else "direct",
     )
 
     # 1. Fetch raw XML from legacy VCD
     fetcher = LegacyVcdFetcher(
-        host=body.host,
-        api_token=body.api_token,
+        host=effective_host,
+        api_token=effective_token,
         verify_ssl=body.verify_ssl,
     )
     try:
@@ -269,10 +308,10 @@ async def generate_migration_hcl(
             detail=f"Legacy VCD returned HTTP {status}. Check host and edge UUID.",
         )
     except httpx.ConnectError:
-        logger.error("Cannot connect to legacy VCD at %s", body.host)
+        logger.error("Cannot connect to legacy VCD at %s", effective_host)
         raise HTTPException(
             status_code=502,
-            detail=f"Cannot connect to legacy VCD at {body.host}.",
+            detail=f"Cannot connect to legacy VCD at {effective_host}.",
         )
     except ValueError as exc:
         logger.error("Legacy VCD login error: %s", exc)

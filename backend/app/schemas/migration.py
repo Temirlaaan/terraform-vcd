@@ -3,20 +3,53 @@
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+class AuthHandleRequest(BaseModel):
+    """Request body for POST /api/v1/migration/auth-handle.
+
+    Browser submits the legacy-VCD host + refresh token once, backend
+    issues a short-lived opaque UUID handle (Redis-backed, TTL=600s).
+    Subsequent migration calls reference the handle instead of the
+    token. H3-FE: keeps a System-Administrator-scoped credential out
+    of browser sessionStorage.
+    """
+
+    host: str = Field(..., min_length=1)
+    api_token: str = Field(..., min_length=1)
+
+
+class AuthHandleResponse(BaseModel):
+    handle: str
+    expires_in: int
 
 
 class MigrationRequest(BaseModel):
-    """Request body for POST /api/v1/migration/generate."""
+    """Request body for POST /api/v1/migration/generate.
 
-    host: str = Field(..., min_length=1, description="Legacy VCD host URL (e.g. https://vcd01.t-cloud.kz)")
-    api_token: str = Field(..., min_length=1, description="VCD API access token (generated via VCD UI)")
+    Either ``handle`` (preferred, redeemed against Redis) or ``api_token``
+    (legacy direct path, accepted for backwards compatibility) must be
+    supplied. ``host`` is taken from the handle when present.
+    """
+
+    host: str | None = Field(None, description="Legacy VCD host URL — required when api_token is used; taken from handle otherwise")
+    api_token: str | None = Field(None, description="VCD API access token (legacy direct path; prefer handle)")
+    handle: str | None = Field(None, description="Opaque Redis handle from POST /migration/auth-handle")
     edge_uuid: str = Field(..., min_length=1, description="NSX-V edge gateway UUID")
     target_org: str = Field(..., min_length=1, description="Target organization name in VCD 10.6")
     target_vdc: str = Field(..., min_length=1, description="Target VDC name")
     target_vdc_id: str = Field(..., min_length=1, description="Target VDC URN")
     target_edge_id: str = Field(..., min_length=1, description="Target NSX-T edge gateway URN")
     verify_ssl: bool = Field(False, description="Verify SSL certificate of legacy VCD")
+
+    @model_validator(mode="after")
+    def _check_auth(self) -> "MigrationRequest":
+        if not self.handle and not self.api_token:
+            raise ValueError("Either 'handle' or 'api_token' must be supplied")
+        if self.api_token and not self.host:
+            raise ValueError("'host' is required when using 'api_token'")
+        return self
 
 
 class MigrationSummary(BaseModel):

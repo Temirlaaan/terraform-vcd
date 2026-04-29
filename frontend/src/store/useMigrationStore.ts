@@ -3,7 +3,14 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import type { MigrationSummary } from "@/api/migrationApi";
 import type { Deployment } from "@/api/deploymentsApi";
 
-const API_TOKEN_STORAGE_KEY = "migration_api_token";
+// H3-FE: legacy-VCD api_token is never stored in browser any more.
+// The browser holds a short-lived opaque handle (UUID, ~10 min TTL,
+// Redis-backed on the backend) which is useless without our backend.
+// The raw token only exists in a local React state during the brief
+// moment the admin types it into the form, then is exchanged for the
+// handle and dropped. Handle is kept in sessionStorage so it survives
+// page navigations within a tab session, but never localStorage.
+const API_HANDLE_STORAGE_KEY = "migration_api_handle";
 
 export interface MigrationFormState {
   host: string;
@@ -25,14 +32,14 @@ export interface MigrationResult {
 
 interface MigrationStore {
   form: MigrationFormState;
-  apiToken: string;
+  apiHandle: string;
   result: MigrationResult | null;
 
   setFormField: <K extends keyof MigrationFormState>(
     key: K,
     value: MigrationFormState[K],
   ) => void;
-  setApiToken: (token: string) => void;
+  setApiHandle: (handle: string) => void;
   setResult: (result: MigrationResult | null) => void;
   hydrateFromDeployment: (d: Deployment) => void;
   resetForm: () => void;
@@ -50,28 +57,28 @@ const defaultForm: MigrationFormState = {
   verifySsl: false,
 };
 
-const getInitialApiToken = (): string => {
+const getInitialApiHandle = (): string => {
   if (typeof window === "undefined") return "";
-  return sessionStorage.getItem(API_TOKEN_STORAGE_KEY) || "";
+  return sessionStorage.getItem(API_HANDLE_STORAGE_KEY) || "";
 };
 
 export const useMigrationStore = create<MigrationStore>()(
   persist(
     (set) => ({
       form: defaultForm,
-      apiToken: getInitialApiToken(),
+      apiHandle: getInitialApiHandle(),
       result: null,
 
       setFormField: (key, value) =>
         set((s) => ({ form: { ...s.form, [key]: value } })),
 
-      setApiToken: (token) => {
-        set({ apiToken: token });
+      setApiHandle: (handle) => {
+        set({ apiHandle: handle });
         if (typeof window !== "undefined") {
-          if (token) {
-            sessionStorage.setItem(API_TOKEN_STORAGE_KEY, token);
+          if (handle) {
+            sessionStorage.setItem(API_HANDLE_STORAGE_KEY, handle);
           } else {
-            sessionStorage.removeItem(API_TOKEN_STORAGE_KEY);
+            sessionStorage.removeItem(API_HANDLE_STORAGE_KEY);
           }
         }
       },
@@ -100,9 +107,9 @@ export const useMigrationStore = create<MigrationStore>()(
 
       resetForm: () => {
         if (typeof window !== "undefined") {
-          sessionStorage.removeItem(API_TOKEN_STORAGE_KEY);
+          sessionStorage.removeItem(API_HANDLE_STORAGE_KEY);
         }
-        set({ form: defaultForm, apiToken: "", result: null });
+        set({ form: defaultForm, apiHandle: "", result: null });
       },
     }),
     {

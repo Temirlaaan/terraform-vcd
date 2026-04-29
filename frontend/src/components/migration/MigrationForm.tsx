@@ -1,6 +1,10 @@
-import { Loader2 } from "lucide-react";
+import { useState } from "react";
+import { Loader2, ShieldCheck } from "lucide-react";
 import { FormInput, FormCheckbox, FormSelect } from "@/components/shared";
-import type { MigrationRequest } from "@/api/migrationApi";
+import {
+  type MigrationRequest,
+  useAuthHandle,
+} from "@/api/migrationApi";
 import {
   useOrgs,
   useVdcsByOrg,
@@ -15,9 +19,15 @@ interface MigrationFormProps {
 
 export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
   const form = useMigrationStore((s) => s.form);
-  const apiToken = useMigrationStore((s) => s.apiToken);
+  const apiHandle = useMigrationStore((s) => s.apiHandle);
   const setFormField = useMigrationStore((s) => s.setFormField);
-  const setApiToken = useMigrationStore((s) => s.setApiToken);
+  const setApiHandle = useMigrationStore((s) => s.setApiHandle);
+
+  // H3-FE: raw token only lives in this component's local state, never
+  // persisted. Once exchanged for an opaque handle the input clears.
+  const [tokenInput, setTokenInput] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const authHandleMut = useAuthHandle();
 
   const orgsQuery = useOrgs();
   const vdcsQuery = useVdcsByOrg(form.orgId || undefined);
@@ -54,17 +64,43 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
     setFormField("edgeGatewayName", "");
   };
 
-  const hasLegacyConfig = form.host && apiToken && form.edgeUuid;
+  const hasAuth = Boolean(apiHandle) || Boolean(tokenInput);
+  const hasLegacyConfig = form.host && hasAuth && form.edgeUuid;
   const hasTargetSelection =
     form.orgName && form.vdcName && form.edgeGatewayId;
   const canSubmit = hasLegacyConfig && hasTargetSelection;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const exchangeTokenForHandle = async (): Promise<string | null> => {
+    setAuthError(null);
+    try {
+      const res = await authHandleMut.mutateAsync({
+        host: form.host,
+        api_token: tokenInput,
+      });
+      setApiHandle(res.handle);
+      setTokenInput("");
+      return res.handle;
+    } catch (e: any) {
+      setAuthError(
+        e?.response?.data?.detail ?? e?.message ?? "Failed to register token",
+      );
+      return null;
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit || isLoading) return;
+
+    let handle = apiHandle;
+    if (!handle) {
+      const fresh = await exchangeTokenForHandle();
+      if (!fresh) return;
+      handle = fresh;
+    }
+
     onSubmit({
-      host: form.host,
-      api_token: apiToken,
+      handle,
       edge_uuid: form.edgeUuid,
       target_org: form.orgName,
       target_vdc: form.vdcName,
@@ -88,18 +124,40 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
           placeholder="https://vcd-legacy.example.com"
         />
         <label className="block space-y-1">
-          <span className="text-xs font-medium text-clr-text-secondary">API Token</span>
+          <span className="text-xs font-medium text-clr-text-secondary flex items-center justify-between">
+            API Token
+            {apiHandle && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700">
+                <ShieldCheck className="h-3 w-3" />
+                Token registered (10 min)
+              </span>
+            )}
+          </span>
           <input
             type="password"
-            value={apiToken}
-            onChange={(e) => setApiToken(e.target.value)}
-            placeholder="••••••••"
+            value={tokenInput}
+            onChange={(e) => setTokenInput(e.target.value)}
+            placeholder={apiHandle ? "Token registered — leave blank to reuse" : "••••••••"}
             autoComplete="off"
             className="w-full rounded-sm bg-white border border-clr-border px-2.5 py-1.5 text-sm text-clr-text placeholder:text-clr-placeholder focus:border-clr-action focus:outline-none transition-colors"
           />
           <span className="text-[10px] text-clr-text-secondary leading-tight block">
-            Generate via VCD UI: Administration → Access Control → Users → Generate API Access Token
+            Token is exchanged for a 10-minute backend handle on submit and
+            never stored in the browser. Generate via VCD UI: Administration
+            → Access Control → Users → Generate API Access Token.
           </span>
+          {apiHandle && (
+            <button
+              type="button"
+              onClick={() => {
+                setApiHandle("");
+                setTokenInput("");
+              }}
+              className="text-[10px] text-clr-action hover:underline"
+            >
+              Forget registered token
+            </button>
+          )}
         </label>
         <FormInput
           label="Edge Gateway UUID"
@@ -158,14 +216,24 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
         />
       </fieldset>
 
+      {authError && (
+        <div className="rounded-sm border border-clr-danger/30 bg-red-50 p-2 text-xs text-clr-danger">
+          {authError}
+        </div>
+      )}
+
       {/* Submit */}
       <button
         type="submit"
-        disabled={!canSubmit || isLoading}
+        disabled={!canSubmit || isLoading || authHandleMut.isPending}
         className="flex items-center justify-center gap-2 w-full rounded-sm bg-clr-action text-white text-sm font-medium py-2 px-4 hover:bg-clr-action-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
-        {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-        {isLoading ? "Generating..." : "Generate HCL"}
+        {(isLoading || authHandleMut.isPending) && <Loader2 className="h-4 w-4 animate-spin" />}
+        {authHandleMut.isPending
+          ? "Registering token..."
+          : isLoading
+            ? "Generating..."
+            : "Generate HCL"}
       </button>
     </form>
   );

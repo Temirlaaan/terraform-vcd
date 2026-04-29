@@ -2,14 +2,41 @@ import { useMutation } from "@tanstack/react-query";
 import api from "./client";
 
 export interface MigrationRequest {
-  host: string;
-  api_token: string;
+  // host + api_token are accepted for backwards compatibility, but the
+  // browser path always uses `handle` (Redis-backed, ~10 min TTL) so
+  // the System-Administrator-scoped legacy-VCD token never lives in
+  // sessionStorage. H3-FE.
+  host?: string;
+  api_token?: string;
+  handle?: string;
   edge_uuid: string;
   target_org: string;
   target_vdc: string;
   target_vdc_id: string;
   target_edge_id: string;
   verify_ssl: boolean;
+}
+
+export interface AuthHandleRequest {
+  host: string;
+  api_token: string;
+}
+
+export interface AuthHandleResponse {
+  handle: string;
+  expires_in: number;
+}
+
+export function useAuthHandle() {
+  return useMutation({
+    mutationFn: async (req: AuthHandleRequest) => {
+      const { data } = await api.post<AuthHandleResponse>(
+        "/api/v1/migration/auth-handle",
+        req,
+      );
+      return data;
+    },
+  });
 }
 
 export interface MigrationSummary {
