@@ -17,6 +17,7 @@ import json
 import logging
 from typing import Any
 
+from app.core.aria_attribution import strip as _strip_attr
 from app.schemas.deployment_spec import (
     AppPortEntry,
     AppPortProfileSpec,
@@ -118,7 +119,7 @@ def parse_state(state_json: dict[str, Any], target: TargetSpec) -> DeploymentSpe
     ip_sets = [
         IpSetSpec(
             name=attrs.get("name", rname),
-            description=attrs.get("description") or "",
+            description=_strip_attr(attrs.get("description") or ""),
             ip_addresses=list(attrs.get("ip_addresses") or []),
         )
         for rname, attrs in ip_sets_raw
@@ -127,7 +128,7 @@ def parse_state(state_json: dict[str, Any], target: TargetSpec) -> DeploymentSpe
     app_port_profiles = [
         AppPortProfileSpec(
             name=attrs.get("name", rname),
-            description=attrs.get("description") or "",
+            description=_strip_attr(attrs.get("description") or ""),
             scope=attrs.get("scope") or "TENANT",
             app_ports=[
                 AppPortEntry(
@@ -171,7 +172,7 @@ def parse_state(state_json: dict[str, Any], target: TargetSpec) -> DeploymentSpe
             NatRuleSpec(
                 name=attrs.get("name", rname),
                 rule_type=(attrs.get("rule_type") or "DNAT").upper(),
-                description=attrs.get("description") or "",
+                description=_strip_attr(attrs.get("description") or ""),
                 external_address=attrs.get("external_address") or "",
                 internal_address=attrs.get("internal_address") or "",
                 dnat_external_port=attrs.get("dnat_external_port") or "",
@@ -198,7 +199,7 @@ def parse_state(state_json: dict[str, Any], target: TargetSpec) -> DeploymentSpe
         static_routes.append(
             StaticRouteSpec(
                 name=attrs.get("name", rname),
-                description=attrs.get("description") or "",
+                description=_strip_attr(attrs.get("description") or ""),
                 network_cidr=attrs.get("network_cidr") or "",
                 next_hops=hops,
             )

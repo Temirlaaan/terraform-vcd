@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.aria_attribution import Attribution, retag_hcl, DRIFT_SYNC_USER
 from app.core import minio_client, version_store
 from app.core.locking import acquire_org_lock, get_org_lock_holder, release_org_lock
 from app.core.plan_parser import parse_show_json
@@ -120,11 +121,19 @@ def _render_provider_tf(deployment_id: uuid.UUID) -> str:
 
 
 async def _prepare_workspace(
-    deployment: Deployment, version: DeploymentVersion, work_dir: Path
+    deployment: Deployment, version: DeploymentVersion, work_dir: Path,
+    *, op_id: str | None = None,
 ) -> None:
     work_dir.mkdir(parents=True, exist_ok=True)
     hcl = await minio_client.get_text(version.hcl_key)
-    (work_dir / "main.tf").write_text(hcl, encoding="utf-8")
+    # Phase 8: retag descriptions so any apply (auto-imported drift,
+    # patched HCL) emits VCD events attributed to drift-sync-cron rather
+    # than the original creator.
+    attribution = Attribution(
+        kc_username=DRIFT_SYNC_USER,
+        op_id=op_id or f"deployment-{deployment.id}",
+    )
+    (work_dir / "main.tf").write_text(retag_hcl(hcl, attribution), encoding="utf-8")
     (work_dir / "provider.tf").write_text(
         _render_provider_tf(deployment.id), encoding="utf-8"
     )

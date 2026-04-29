@@ -24,7 +24,9 @@ from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import AuthenticatedUser, require_roles
-from app.core import minio_client, version_store
+from app.core import minio_client
+from app.core.aria_attribution import Attribution, retag_hcl, strip_descriptions_in_hcl
+from app.core import version_store
 from app.core.deployment_state_align import scan_and_remove_orphans
 from app.core.locking import acquire_org_lock, release_org_lock, get_org_lock_holder
 from app.core.tf_workspace import TerraformWorkspace
@@ -93,7 +95,7 @@ async def get_deployment_hcl(
     deployment = await db.get(Deployment, deployment_id)
     if deployment is None:
         raise HTTPException(status_code=404, detail="Deployment not found")
-    return deployment.hcl or ""
+    return strip_descriptions_in_hcl(deployment.hcl or "")
 
 
 @router.post("/{deployment_id}/plan", response_model=OperationIdResponse)
@@ -138,7 +140,12 @@ async def deployment_plan(
     try:
         workspace = TerraformWorkspace(org_name, operation_id)
         workspace.work_dir.mkdir(parents=True, exist_ok=True)
-        (workspace.work_dir / "main.tf").write_text(body.hcl, encoding="utf-8")
+        attribution = Attribution(
+            kc_username=user.username or "unknown",
+            op_id=str(operation_id),
+        )
+        tagged_hcl = retag_hcl(body.hcl, attribution)
+        (workspace.work_dir / "main.tf").write_text(tagged_hcl, encoding="utf-8")
         (workspace.work_dir / "provider.tf").write_text(
             _render_provider_tf(deployment_id), encoding="utf-8"
         )

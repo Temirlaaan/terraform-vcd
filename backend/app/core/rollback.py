@@ -32,7 +32,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core import minio_client, version_store
+from app.core import minio_client
+from app.core.aria_attribution import Attribution, retag_hcl
+from app.core import version_store
 from app.core.locking import acquire_org_lock, release_org_lock
 from app.core.tf_runner import TerraformRunner, log_channel
 from app.core.tf_workspace import TerraformWorkspace
@@ -183,7 +185,16 @@ async def prepare_rollback(
             workspace = TerraformWorkspace(org_name, operation_id)
             workspace.work_dir.mkdir(parents=True, exist_ok=True)
             hcl_text = await minio_client.get_text(version.hcl_key)
-            (workspace.work_dir / "main.tf").write_text(hcl_text, encoding="utf-8")
+            # Phase 8: retag descriptions with current admin so the rollback
+            # apply emits VCD events attributed to the operator who confirmed
+            # it, not the admin who created the snapshot.
+            attribution = Attribution(
+                kc_username=username or "unknown",
+                op_id=str(operation_id),
+            )
+            (workspace.work_dir / "main.tf").write_text(
+                retag_hcl(hcl_text, attribution), encoding="utf-8"
+            )
             (workspace.work_dir / "provider.tf").write_text(
                 _render_provider_tf(deployment_id), encoding="utf-8"
             )

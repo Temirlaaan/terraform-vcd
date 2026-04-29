@@ -17,6 +17,7 @@ from app.config import settings
 from app.core.locking import acquire_org_lock, get_org_lock_holder, release_org_lock
 from app.core.tf_import import run_preapply_imports
 from app.core.tf_workspace import TerraformWorkspace
+from app.core.aria_attribution import Attribution, retag_hcl
 from app.database import get_db
 from app.integrations.vcd_client import vcd_client
 from app.migration.fetcher import LegacyVcdFetcher
@@ -350,16 +351,26 @@ def _render_provider_tf(deployment_id: uuid.UUID) -> str:
 
 
 def _create_migration_workspace(
-    org_name: str, operation_id: uuid.UUID, hcl: str, deployment_id: uuid.UUID,
+    org_name: str,
+    operation_id: uuid.UUID,
+    hcl: str,
+    deployment_id: uuid.UUID,
+    attribution: Attribution | None = None,
 ) -> TerraformWorkspace:
     """Create a workspace and write pre-generated HCL + provider config.
 
     Phase 3: provider.tf state_key derives from ``deployment_id`` so all
     plan/apply/rollback runs for the same deployment share state.
+
+    Phase 8: when ``attribution`` is set, every ``description = "..."``
+    line in the rendered HCL is rewritten to carry the dashboard
+    ``[by:<kc_user>:<op_id>]`` prefix so VCD events surface the actual
+    KC admin in Aria.
     """
     workspace = TerraformWorkspace(org_name, operation_id)
     workspace.work_dir.mkdir(parents=True, exist_ok=True)
-    (workspace.work_dir / "main.tf").write_text(hcl, encoding="utf-8")
+    tagged = retag_hcl(hcl, attribution) if attribution else hcl
+    (workspace.work_dir / "main.tf").write_text(tagged, encoding="utf-8")
     (workspace.work_dir / "provider.tf").write_text(
         _render_provider_tf(deployment_id), encoding="utf-8"
     )
@@ -527,7 +538,16 @@ async def migration_plan(
 
     # --- Prepare workspace with raw HCL ---
     try:
-        workspace = _create_migration_workspace(org_name, operation_id, body.hcl, deployment.id)
+        workspace = _create_migration_workspace(
+            org_name,
+            operation_id,
+            body.hcl,
+            deployment.id,
+            attribution=Attribution(
+                kc_username=user.username or "unknown",
+                op_id=str(operation_id),
+            ),
+        )
     except Exception as exc:
         logger.exception("Failed to create migration workspace for plan %s", operation_id)
         operation.status = OperationStatus.FAILED
