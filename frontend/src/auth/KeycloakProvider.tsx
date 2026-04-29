@@ -6,6 +6,13 @@ import keycloak, { initKeycloak } from "./keycloak";
 
 const AUTH_DISABLED = import.meta.env.VITE_AUTH_DISABLED === "true";
 
+if (AUTH_DISABLED && import.meta.env.PROD) {
+  throw new Error(
+    "VITE_AUTH_DISABLED=true refused in production build. " +
+      "Rebuild without this flag or run a dev server.",
+  );
+}
+
 function AuthLoading() {
   return (
     <div className="flex items-center justify-center h-screen bg-slate-950 text-slate-400">

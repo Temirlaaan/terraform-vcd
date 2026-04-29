@@ -31,6 +31,7 @@ import {
   useVdcsByOrg,
 } from "@/api/metadataApi";
 import { cn } from "@/utils/cn";
+import { useAuth } from "@/auth/useAuth";
 
 function relativeTime(iso: string): string {
   const then = new Date(iso).getTime();
@@ -107,9 +108,12 @@ function SummaryBadges({ d }: { d: DeploymentListItem }) {
 interface KebabMenuProps {
   onRename: () => void;
   onDelete: () => void;
+  canDelete: boolean;
+  canRename: boolean;
 }
 
-function KebabMenu({ onRename, onDelete }: KebabMenuProps) {
+function KebabMenu({ onRename, onDelete, canDelete, canRename }: KebabMenuProps) {
+  if (!canDelete && !canRename) return null;
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
@@ -134,30 +138,34 @@ function KebabMenu({ onRename, onDelete }: KebabMenuProps) {
             }}
           />
           <div className="absolute right-0 top-full mt-1 z-20 min-w-[120px] rounded-sm border border-clr-border bg-white shadow-md py-1">
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setOpen(false);
-                onRename();
-              }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-clr-text hover:bg-clr-near-white"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Rename
-            </button>
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setOpen(false);
-                onDelete();
-              }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-clr-danger hover:bg-red-50"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete
-            </button>
+            {canRename && (
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setOpen(false);
+                  onRename();
+                }}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-clr-text hover:bg-clr-near-white"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Rename
+              </button>
+            )}
+            {canDelete && (
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setOpen(false);
+                  onDelete();
+                }}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-clr-danger hover:bg-red-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </button>
+            )}
           </div>
         </>
       )}
@@ -169,9 +177,11 @@ interface DeploymentCardProps {
   d: DeploymentListItem;
   onRename: (d: DeploymentListItem) => void;
   onDelete: (d: DeploymentListItem) => void;
+  canDelete: boolean;
+  canRename: boolean;
 }
 
-function DeploymentCard({ d, onRename, onDelete }: DeploymentCardProps) {
+function DeploymentCard({ d, onRename, onDelete, canDelete, canRename }: DeploymentCardProps) {
   const badge = kindBadge(d.kind);
   return (
     <div className="bg-white border border-clr-border rounded-sm p-5 flex flex-col gap-4 transition-all hover:shadow-md hover:border-clr-action/40">
@@ -192,6 +202,8 @@ function DeploymentCard({ d, onRename, onDelete }: DeploymentCardProps) {
         <KebabMenu
           onRename={() => onRename(d)}
           onDelete={() => onDelete(d)}
+          canRename={canRename}
+          canDelete={canDelete}
         />
       </div>
 
@@ -599,6 +611,9 @@ const KIND_OPTIONS: { value: string; label: string }[] = [
 
 export function DeploymentsPage() {
   const query = useDeployments();
+  const { roles } = useAuth();
+  const isWriter = roles.includes("tf-admin") || roles.includes("tf-operator");
+  const isAdmin = roles.includes("tf-admin");
   const [renameTarget, setRenameTarget] = useState<DeploymentListItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeploymentListItem | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -669,20 +684,24 @@ export function DeploymentsPage() {
             <RefreshCw className={cn("h-3.5 w-3.5", query.isFetching && "animate-spin")} />
             Refresh
           </button>
-          <Link
-            to="/deployments/new"
-            className="flex items-center gap-1.5 rounded-sm bg-clr-action text-white text-xs font-medium py-1.5 px-3 hover:bg-clr-action-hover"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            New Deployment
-          </Link>
-          <button
-            onClick={() => setImportOpen(true)}
-            className="flex items-center gap-1.5 rounded-sm border border-clr-action/40 bg-white text-clr-action text-xs font-medium py-1.5 px-3 hover:bg-clr-action/10"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Import existing
-          </button>
+          {isWriter && (
+            <Link
+              to="/deployments/new"
+              className="flex items-center gap-1.5 rounded-sm bg-clr-action text-white text-xs font-medium py-1.5 px-3 hover:bg-clr-action-hover"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New Deployment
+            </Link>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => setImportOpen(true)}
+              className="flex items-center gap-1.5 rounded-sm border border-clr-action/40 bg-white text-clr-action text-xs font-medium py-1.5 px-3 hover:bg-clr-action/10"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Import existing
+            </button>
+          )}
         </div>
       </div>
 
@@ -765,6 +784,8 @@ export function DeploymentsPage() {
               d={d}
               onRename={setRenameTarget}
               onDelete={setDeleteTarget}
+              canRename={isWriter}
+              canDelete={isAdmin}
             />
           ))}
         </div>

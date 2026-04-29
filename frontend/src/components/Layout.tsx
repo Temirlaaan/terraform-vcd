@@ -130,11 +130,23 @@ function NavSidebar() {
 /*  Layout                                                            */
 /* ------------------------------------------------------------------ */
 
+const AUTH_DISABLED = import.meta.env.VITE_AUTH_DISABLED === "true";
+
+function AuthDisabledBanner() {
+  if (!AUTH_DISABLED) return null;
+  return (
+    <div className="flex-none bg-amber-500 text-amber-950 text-center text-xs font-semibold py-1 px-3 border-b border-amber-700">
+      ⚠ AUTH DISABLED — dev mode. All requests run as anonymous admin. Refused on production builds.
+    </div>
+  );
+}
+
 export function Layout() {
   const terminalOpen = useConfigStore((s) => s.terminalOpen);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
+      <AuthDisabledBanner />
       <TopBar />
 
       {/* Main workspace */}

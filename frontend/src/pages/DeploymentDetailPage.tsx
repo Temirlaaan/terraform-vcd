@@ -51,6 +51,7 @@ import {
   type DriftReportSummary,
 } from "@/api/driftApi";
 import { useConfigStore } from "@/store/useConfigStore";
+import { useAuth } from "@/auth/useAuth";
 import { cn } from "@/utils/cn";
 
 type Tab = "overview" | "versions" | "hcl" | "drift";
@@ -658,6 +659,9 @@ function CompareModal({
 /* ------------------------------------------------------------------ */
 
 function VersionsTab({ deploymentId }: { deploymentId: string }) {
+  const { roles } = useAuth();
+  const isWriter = roles.includes("tf-admin") || roles.includes("tf-operator");
+  const isAdmin = roles.includes("tf-admin");
   const { data, isLoading, isError, error, refetch, isFetching } =
     useDeploymentVersions(deploymentId);
   const [rollbackTarget, setRollbackTarget] = useState<DeploymentVersion | null>(
@@ -871,41 +875,45 @@ function VersionsTab({ deploymentId }: { deploymentId: string }) {
                         <GitCompare className="h-3 w-3" />
                         Diff
                       </button>
-                      <button
-                        onClick={() =>
-                          pinMutation.mutate({
-                            versionNum: v.version_num,
-                            pinned: !v.is_pinned,
-                          })
-                        }
-                        disabled={pinMutation.isPending}
-                        title={
-                          v.is_pinned
-                            ? "Unpin (allow rotation)"
-                            : "Pin (never rotate)"
-                        }
-                        className="inline-flex items-center gap-1 text-xs text-clr-text-secondary hover:text-amber-700 disabled:opacity-40"
-                      >
-                        {v.is_pinned ? (
-                          <LockOpen className="h-3 w-3" />
-                        ) : (
-                          <Lock className="h-3 w-3" />
-                        )}
-                        {v.is_pinned ? "Unpin" : "Pin"}
-                      </button>
-                      <button
-                        onClick={() => setRollbackTarget(v)}
-                        disabled={isCurrent}
-                        title={
-                          isCurrent
-                            ? "This is the current version"
-                            : "Rollback here"
-                        }
-                        className="inline-flex items-center gap-1 text-xs text-clr-action hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
-                      >
-                        <RotateCcw className="h-3 w-3" />
-                        Rollback
-                      </button>
+                      {isAdmin && (
+                        <button
+                          onClick={() =>
+                            pinMutation.mutate({
+                              versionNum: v.version_num,
+                              pinned: !v.is_pinned,
+                            })
+                          }
+                          disabled={pinMutation.isPending}
+                          title={
+                            v.is_pinned
+                              ? "Unpin (allow rotation)"
+                              : "Pin (never rotate)"
+                          }
+                          className="inline-flex items-center gap-1 text-xs text-clr-text-secondary hover:text-amber-700 disabled:opacity-40"
+                        >
+                          {v.is_pinned ? (
+                            <LockOpen className="h-3 w-3" />
+                          ) : (
+                            <Lock className="h-3 w-3" />
+                          )}
+                          {v.is_pinned ? "Unpin" : "Pin"}
+                        </button>
+                      )}
+                      {isWriter && (
+                        <button
+                          onClick={() => setRollbackTarget(v)}
+                          disabled={isCurrent}
+                          title={
+                            isCurrent
+                              ? "This is the current version"
+                              : "Rollback here"
+                          }
+                          className="inline-flex items-center gap-1 text-xs text-clr-action hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                          Rollback
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -947,6 +955,8 @@ function VersionsTab({ deploymentId }: { deploymentId: string }) {
 /* ------------------------------------------------------------------ */
 
 function DriftTab({ deploymentId }: { deploymentId: string }) {
+  const { roles } = useAuth();
+  const isWriter = roles.includes("tf-admin") || roles.includes("tf-operator");
   const { data: deployment } = useDeployment(deploymentId);
   const { data: reports, isLoading, isError, error, refetch, isFetching } =
     useDriftReports(deploymentId);
@@ -1004,18 +1014,20 @@ function DriftTab({ deploymentId }: { deploymentId: string }) {
           >
             {isFetching ? "Refreshing…" : "Refresh"}
           </button>
-          <button
-            onClick={handleTrigger}
-            disabled={trigger.isPending}
-            className="inline-flex items-center gap-1.5 rounded-sm bg-clr-action text-white text-xs font-medium px-3 py-1.5 hover:bg-clr-action-hover disabled:opacity-50"
-          >
-            {trigger.isPending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
-            )}
-            Check drift now
-          </button>
+          {isWriter && (
+            <button
+              onClick={handleTrigger}
+              disabled={trigger.isPending}
+              className="inline-flex items-center gap-1.5 rounded-sm bg-clr-action text-white text-xs font-medium px-3 py-1.5 hover:bg-clr-action-hover disabled:opacity-50"
+            >
+              {trigger.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              Check drift now
+            </button>
+          )}
         </div>
       </div>
 
@@ -1060,6 +1072,7 @@ function DriftTab({ deploymentId }: { deploymentId: string }) {
                     review.mutate({ reportId: r.id, resolution: res })
                   }
                   reviewing={review.isPending}
+                  canReview={isWriter}
                 />
               ))}
             </tbody>
@@ -1082,11 +1095,13 @@ function DriftReportRow({
   onView,
   onReview,
   reviewing,
+  canReview,
 }: {
   report: DriftReportSummary;
   onView: () => void;
   onReview: (res: "accepted" | "rolled_back" | "ignored") => void;
   reviewing: boolean;
+  canReview: boolean;
 }) {
   const totalChanges =
     report.additions_count + report.modifications_count + report.deletions_count;
@@ -1157,7 +1172,7 @@ function DriftReportRow({
             <Eye className="h-3 w-3" />
             Details
           </button>
-          {unreviewed && (
+          {unreviewed && canReview && (
             <>
               <button
                 onClick={() => onReview("accepted")}
@@ -1356,6 +1371,9 @@ function HclTab({
   deploymentId: string;
   onGoToDrift: () => void;
 }) {
+  const { roles } = useAuth();
+  const isWriter = roles.includes("tf-admin") || roles.includes("tf-operator");
+  const isAdmin = roles.includes("tf-admin");
   const { data: remoteHcl, isLoading, isError, error, refetch } =
     useDeploymentHcl(deploymentId);
   const { data: deployment } = useDeployment(deploymentId);
@@ -1487,7 +1505,7 @@ function HclTab({
         </div>
       </div>
 
-      {orphanScan.data && orphanScan.data.removed.length > 0 && (
+      {isAdmin && orphanScan.data && orphanScan.data.removed.length > 0 && (
         <div className="flex items-start gap-2 rounded-sm border border-amber-300 bg-amber-50 p-2">
           <AlertTriangle className="h-4 w-4 text-amber-700 flex-none mt-0.5" />
           <div className="flex-1 text-xs text-amber-900 space-y-1">
@@ -1606,45 +1624,47 @@ function HclTab({
         </div>
       )}
 
-      <div className="flex items-center justify-end gap-2">
-        {dirty && (
+      {isWriter && (
+        <div className="flex items-center justify-end gap-2">
+          {dirty && (
+            <button
+              onClick={handleResetDraft}
+              className="rounded-sm px-3 py-1.5 text-xs text-clr-text-secondary hover:text-clr-text"
+            >
+              Discard changes
+            </button>
+          )}
           <button
-            onClick={handleResetDraft}
-            className="rounded-sm px-3 py-1.5 text-xs text-clr-text-secondary hover:text-clr-text"
+            onClick={handlePlan}
+            disabled={planMut.isPending || applyingOrDone}
+            title={
+              dirty
+                ? "Save HCL changes and run terraform plan"
+                : "Run terraform plan against the current saved HCL"
+            }
+            className="flex items-center gap-1.5 rounded-sm bg-clr-action text-white text-xs font-medium px-3 py-1.5 hover:bg-clr-action-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Discard changes
+            {planMut.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Pencil className="h-3.5 w-3.5" />
+            )}
+            Save & Plan
           </button>
-        )}
-        <button
-          onClick={handlePlan}
-          disabled={planMut.isPending || applyingOrDone}
-          title={
-            dirty
-              ? "Save HCL changes and run terraform plan"
-              : "Run terraform plan against the current saved HCL"
-          }
-          className="flex items-center gap-1.5 rounded-sm bg-clr-action text-white text-xs font-medium px-3 py-1.5 hover:bg-clr-action-hover disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {planMut.isPending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Pencil className="h-3.5 w-3.5" />
-          )}
-          Save & Plan
-        </button>
-        <button
-          onClick={handleApply}
-          disabled={!planReady || applyMut.isPending || applyingOrDone}
-          className="flex items-center gap-1.5 rounded-sm bg-emerald-600 text-white text-xs font-medium px-3 py-1.5 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {applyMut.isPending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Save className="h-3.5 w-3.5" />
-          )}
-          Apply
-        </button>
-      </div>
+          <button
+            onClick={handleApply}
+            disabled={!planReady || applyMut.isPending || applyingOrDone}
+            className="flex items-center gap-1.5 rounded-sm bg-emerald-600 text-white text-xs font-medium px-3 py-1.5 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {applyMut.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Save className="h-3.5 w-3.5" />
+            )}
+            Apply
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1655,6 +1675,8 @@ function HclTab({
 
 function OverviewTab({ deploymentId }: { deploymentId: string }) {
   const { data: d, isLoading, isError, error } = useDeployment(deploymentId);
+  const { roles } = useAuth();
+  const isWriter = roles.includes("tf-admin") || roles.includes("tf-operator");
 
   if (isLoading) {
     return (
@@ -1709,24 +1731,26 @@ function OverviewTab({ deploymentId }: { deploymentId: string }) {
         ))}
       </dl>
 
-      <div className="flex items-center gap-2 pt-2">
-        <Link
-          to={`/deployments/${d.id}/edit`}
-          className="flex items-center gap-1.5 rounded-sm bg-clr-action text-white text-xs font-medium px-3 py-1.5 hover:bg-clr-action-hover"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-          Edit deployment
-        </Link>
-        {d.kind === "migrated" && (
+      {isWriter && (
+        <div className="flex items-center gap-2 pt-2">
           <Link
-            to={`/migration?deployment=${d.id}`}
-            className="flex items-center gap-1.5 rounded-sm border border-clr-border bg-white text-clr-text hover:border-clr-action text-xs font-medium px-3 py-1.5"
+            to={`/deployments/${d.id}/edit`}
+            className="flex items-center gap-1.5 rounded-sm bg-clr-action text-white text-xs font-medium px-3 py-1.5 hover:bg-clr-action-hover"
           >
             <Pencil className="h-3.5 w-3.5" />
-            Edit in Migration form
+            Edit deployment
           </Link>
-        )}
-      </div>
+          {d.kind === "migrated" && (
+            <Link
+              to={`/migration?deployment=${d.id}`}
+              className="flex items-center gap-1.5 rounded-sm border border-clr-border bg-white text-clr-text hover:border-clr-action text-xs font-medium px-3 py-1.5"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Edit in Migration form
+            </Link>
+          )}
+        </div>
+      )}
     </div>
   );
 }
