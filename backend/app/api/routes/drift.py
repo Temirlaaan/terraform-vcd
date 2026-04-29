@@ -27,7 +27,7 @@ from app.models.drift_report import DriftReport
 
 logger = logging.getLogger(__name__)
 
-_ADMIN_ONLY = require_roles("tf-admin")
+_WRITE_ROLES = require_roles("tf-admin", "tf-operator")
 _READER = require_roles("tf-admin", "tf-operator", "tf-viewer")
 
 router = APIRouter(tags=["drift"])
@@ -107,7 +107,7 @@ async def trigger_drift_check(
     deployment_id: uuid.UUID,
     background: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    user: AuthenticatedUser = Depends(_ADMIN_ONLY),  # noqa: ARG001
+    user: AuthenticatedUser = Depends(_WRITE_ROLES),  # noqa: ARG001
 ) -> TriggerResponse:
     deployment = await db.get(Deployment, deployment_id)
     if deployment is None:
@@ -175,7 +175,7 @@ async def review_drift_report(
     report_id: uuid.UUID,
     body: ReviewBody,
     db: AsyncSession = Depends(get_db),
-    user: AuthenticatedUser = Depends(_ADMIN_ONLY),
+    user: AuthenticatedUser = Depends(_WRITE_ROLES),
 ) -> DriftReportSummary:
     row = await db.get(DriftReport, report_id)
     if row is None:

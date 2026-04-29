@@ -39,8 +39,50 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/deployments", tags=["deployment-hcl"])
 
+# M-BE Variant B: viewer no longer reads HCL. Network topology disclosure
+# (target VDC/edge URNs, NAT external IPs, IP-set CIDRs, firewall rules)
+# is too risky for a read-only role. Both edit and read endpoints now
+# require operator+admin.
 _EDIT_ROLES = require_roles("tf-admin", "tf-operator")
-_READ_ROLES = require_roles("tf-admin", "tf-operator", "tf-viewer")
+_READ_ROLES = require_roles("tf-admin", "tf-operator")
+
+
+import re
+
+_EDGE_LIT_RE = re.compile(r'edge_gateway_id\s*=\s*"([^"]+)"')
+_ORG_LIT_RE = re.compile(r'(?<![A-Za-z_])org\s*=\s*"([^"]+)"')
+_VDC_LIT_RE = re.compile(r'(?<![A-Za-z_])vdc(?:_id)?\s*=\s*"([^"]+)"')
+
+
+def _validate_hcl_binding(hcl: str, deployment: "Deployment") -> None:
+    """H2-BE: reject HCL that hard-codes target identifiers different
+    from the deployment row's bound target.
+
+    Variable references (``var.target_edge_id``) and unquoted values are
+    not matched by the regexes — only literal ``"..."`` strings. This
+    blocks an operator from submitting HCL that addresses someone else's
+    edge while the dashboard's System Administrator service account
+    obediently applies it.
+    """
+    for label, pattern, expected in (
+        ("edge_gateway_id", _EDGE_LIT_RE, deployment.target_edge_id),
+        ("org", _ORG_LIT_RE, deployment.target_org),
+        ("vdc / vdc_id", _VDC_LIT_RE, deployment.vdc_id or deployment.target_vdc),
+    ):
+        if expected is None:
+            continue
+        for match in pattern.finditer(hcl):
+            value = match.group(1)
+            if value != expected:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"HCL binding violation: {label}={value!r} does not "
+                        f"match deployment target {expected!r}. "
+                        "Use var.target_edge_id / var.target_org / var.vdc_id "
+                        "to reference the bound target instead of literals."
+                    ),
+                )
 
 
 class DeploymentPlanBody(BaseModel):
@@ -111,6 +153,8 @@ async def deployment_plan(
     deployment = await db.get(Deployment, deployment_id)
     if deployment is None:
         raise HTTPException(status_code=404, detail="Deployment not found")
+
+    _validate_hcl_binding(body.hcl, deployment)
 
     org_name = deployment.target_org
     operation_id = uuid.uuid4()

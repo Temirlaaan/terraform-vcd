@@ -45,8 +45,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/deployments", tags=["deployments-import"])
 
-_READ_ROLE = require_roles("tf-admin", "tf-operator", "tf-viewer")
-_WRITE_ROLE = require_roles("tf-admin", "tf-operator")
+# Phase 9 RBAC:
+#   - available-edges leaks VCD topology (org/vdc/edge URNs + deployed
+#     flags) → operator+admin, no viewer.
+#   - import creates a pinned baseline that becomes recoverable history;
+#     scope it to admin-only.
+_AVAILABLE_EDGES_ROLES = require_roles("tf-admin", "tf-operator")
+_IMPORT_ADMIN = require_roles("tf-admin")
 
 
 # ----------------------------------------------------------------------
@@ -58,7 +63,7 @@ _WRITE_ROLE = require_roles("tf-admin", "tf-operator")
 async def list_available_edges(
     vdc_id: str | None = Query(default=None, description="VDC URN to filter by"),
     db: AsyncSession = Depends(get_db),
-    user: AuthenticatedUser = Depends(_READ_ROLE),  # noqa: ARG001
+    user: AuthenticatedUser = Depends(_AVAILABLE_EDGES_ROLES),  # noqa: ARG001
 ) -> dict:
     """List edges from VCD with a ``deployed`` flag per edge.
 
@@ -161,7 +166,7 @@ def _provider_tf_for_deployment(deployment_id: uuid.UUID) -> str:
 async def import_existing_edge(
     body: DeploymentImportRequest,
     db: AsyncSession = Depends(get_db),
-    user: AuthenticatedUser = Depends(_WRITE_ROLE),
+    user: AuthenticatedUser = Depends(_IMPORT_ADMIN),
 ) -> DeploymentOut:
     """Create an ``imported`` deployment from an existing VCD edge.
 

@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/deployments", tags=["versions"])
 
 _ANY_ROLE = require_roles("tf-admin", "tf-operator", "tf-viewer")
+_WRITE_ROLES = require_roles("tf-admin", "tf-operator")
 _ADMIN_ONLY = require_roles("tf-admin")
 
 
@@ -97,7 +98,7 @@ async def get_version_hcl(
     deployment_id: uuid.UUID,
     version_num: int,
     db: AsyncSession = Depends(get_db),
-    user: AuthenticatedUser = Depends(_ANY_ROLE),  # noqa: ARG001
+    user: AuthenticatedUser = Depends(_WRITE_ROLES),  # noqa: ARG001
 ) -> PlainTextResponse:
     v = await _require_version(db, deployment_id, version_num)
     try:
