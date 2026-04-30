@@ -1,7 +1,8 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { KeycloakProvider } from "@/auth/KeycloakProvider";
 import { RequireRole } from "@/auth/RequireRole";
+import { useAuth } from "@/auth/useAuth";
 import { Layout } from "@/components/Layout";
 import { CatalogPage } from "@/pages/CatalogPage";
 import { ProvisionPage } from "@/pages/ProvisionPage";
@@ -24,6 +25,15 @@ const queryClient = new QueryClient({
 
 const WRITE_ROLES = ["tf-admin", "tf-operator"];
 
+// Index route: writers see Service Catalog (Phase 0 provision flow,
+// still under active development). Viewers don't see the catalog at
+// all — they land on /deployments (their primary surface).
+function IndexRoute() {
+  const { roles } = useAuth();
+  const isWriter = WRITE_ROLES.some((r) => roles.includes(r));
+  return isWriter ? <CatalogPage /> : <Navigate to="/deployments" replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -31,8 +41,15 @@ export default function App() {
         <QueryClientProvider client={queryClient}>
           <Routes>
             <Route element={<Layout />}>
-              <Route index element={<CatalogPage />} />
-              <Route path="provision" element={<ProvisionPage />} />
+              <Route index element={<IndexRoute />} />
+              <Route
+                path="provision"
+                element={
+                  <RequireRole roles={WRITE_ROLES}>
+                    <ProvisionPage />
+                  </RequireRole>
+                }
+              />
               <Route
                 path="migration"
                 element={
@@ -59,7 +76,14 @@ export default function App() {
                   </RequireRole>
                 }
               />
-              <Route path="settings" element={<SettingsPage />} />
+              <Route
+                path="settings"
+                element={
+                  <RequireRole roles={["tf-admin"]}>
+                    <SettingsPage />
+                  </RequireRole>
+                }
+              />
               <Route path="unauthorized" element={<UnauthorizedPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Route>

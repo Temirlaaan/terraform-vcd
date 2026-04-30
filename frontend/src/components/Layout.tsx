@@ -94,21 +94,51 @@ function TopBar() {
 /*  NavSidebar                                                        */
 /* ------------------------------------------------------------------ */
 
-const navItems = [
-  { to: "/", icon: LayoutGrid, label: "Service Catalog", end: true },
-  { to: "/migration", icon: ArrowLeftRight, label: "Migration" },
+interface NavItem {
+  to: string;
+  icon: typeof LayoutGrid;
+  label: string;
+  end?: boolean;
+  // Visible only when current user holds at least one of these realm
+  // roles. ``undefined`` means visible to everyone (post-auth).
+  requireRoles?: string[];
+}
+
+const ALL_NAV_ITEMS: NavItem[] = [
+  {
+    to: "/",
+    icon: LayoutGrid,
+    label: "Service Catalog",
+    end: true,
+    requireRoles: ["tf-admin", "tf-operator"],
+  },
+  {
+    to: "/migration",
+    icon: ArrowLeftRight,
+    label: "Migration",
+    requireRoles: ["tf-admin", "tf-operator"],
+  },
   { to: "/deployments", icon: FolderOpen, label: "My Deployments" },
-  { to: "/settings", icon: Settings, label: "Settings" },
-] as const;
+  {
+    to: "/settings",
+    icon: Settings,
+    label: "Settings",
+    requireRoles: ["tf-admin"],
+  },
+];
 
 function NavSidebar() {
+  const { roles } = useAuth();
+  const items = ALL_NAV_ITEMS.filter(
+    (it) => !it.requireRoles || it.requireRoles.some((r) => roles.includes(r)),
+  );
   return (
     <nav className="w-56 flex-none bg-clr-near-white border-r border-clr-border py-3 flex flex-col gap-0.5" aria-label="Main navigation">
-      {navItems.map(({ to, icon: Icon, label, ...rest }) => (
+      {items.map(({ to, icon: Icon, label, end }) => (
         <NavLink
           key={to}
           to={to}
-          end={"end" in rest}
+          end={end}
           className={({ isActive }) =>
             cn(
               "flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors border-l-2",

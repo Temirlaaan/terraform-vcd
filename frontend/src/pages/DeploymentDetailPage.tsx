@@ -851,30 +851,34 @@ function VersionsTab({ deploymentId }: { deploymentId: string }) {
                   </td>
                   <td className="px-3 py-2 text-right">
                     <div className="inline-flex items-center gap-3">
-                      <button
-                        onClick={() => setViewTarget(v)}
-                        title="View HCL"
-                        className="inline-flex items-center gap-1 text-xs text-clr-text-secondary hover:text-clr-action"
-                      >
-                        <Eye className="h-3 w-3" />
-                        View
-                      </button>
-                      <button
-                        onClick={() => {
-                          const prev = allItems.find(
-                            (x) => x.version_num === v.version_num - 1,
-                          );
-                          setCompareOpen({
-                            base: prev ? prev.version_num : v.version_num,
-                            target: v.version_num,
-                          });
-                        }}
-                        title="Compare with previous version"
-                        className="inline-flex items-center gap-1 text-xs text-clr-text-secondary hover:text-clr-action"
-                      >
-                        <GitCompare className="h-3 w-3" />
-                        Diff
-                      </button>
+                      {isWriter && (
+                        <>
+                          <button
+                            onClick={() => setViewTarget(v)}
+                            title="View HCL"
+                            className="inline-flex items-center gap-1 text-xs text-clr-text-secondary hover:text-clr-action"
+                          >
+                            <Eye className="h-3 w-3" />
+                            View
+                          </button>
+                          <button
+                            onClick={() => {
+                              const prev = allItems.find(
+                                (x) => x.version_num === v.version_num - 1,
+                              );
+                              setCompareOpen({
+                                base: prev ? prev.version_num : v.version_num,
+                                target: v.version_num,
+                              });
+                            }}
+                            title="Compare with previous version"
+                            className="inline-flex items-center gap-1 text-xs text-clr-text-secondary hover:text-clr-action"
+                          >
+                            <GitCompare className="h-3 w-3" />
+                            Diff
+                          </button>
+                        </>
+                      )}
                       {isAdmin && (
                         <button
                           onClick={() =>
@@ -1764,6 +1768,8 @@ export function DeploymentDetailPage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>("overview");
   const { data: d } = useDeployment(id);
+  const { roles } = useAuth();
+  const isWriter = roles.includes("tf-admin") || roles.includes("tf-operator");
 
   if (!id) {
     return (
@@ -1771,10 +1777,14 @@ export function DeploymentDetailPage() {
     );
   }
 
+  // HCL tab hidden from viewer (Variant B). Backend rejects GET /hcl
+  // with 403 anyway, but we don't want users to see a red error UI.
   const tabs: { key: Tab; label: string; icon: typeof Info }[] = [
     { key: "overview", label: "Overview", icon: Info },
     { key: "versions", label: "Version history", icon: History },
-    { key: "hcl", label: "HCL", icon: FileCode2 },
+    ...(isWriter
+      ? ([{ key: "hcl" as Tab, label: "HCL", icon: FileCode2 }])
+      : []),
     { key: "drift", label: "Drift", icon: Cloud },
   ];
 
