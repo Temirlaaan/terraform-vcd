@@ -48,6 +48,12 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 def _slug(value: str) -> str:
     v = (value or "").lower().strip()
     v = _SLUG_RE.sub("_", v).strip("_")
+    # Terraform identifiers must start with a letter or underscore, and
+    # these names are routinely IP addresses or numeric rule ids. Only
+    # digit-leading slugs change, and those never produced valid HCL, so
+    # no applied state can reference them.
+    if v and v[0].isdigit():
+        v = "r_" + v
     return v or "resource"
 
 

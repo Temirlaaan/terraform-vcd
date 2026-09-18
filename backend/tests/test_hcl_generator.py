@@ -800,3 +800,58 @@ class TestHCLGeneratorCombined:
     def test_backend_state_key_uses_org_slug(self):
         hcl = self.gen.generate({"org": {"name": "My Org (prod)"}})
         assert "my_org_prod/terraform.tfstate" in hcl
+
+
+# -----------------------------------------------------------------------
+#  Terraform identifier validity
+# -----------------------------------------------------------------------
+
+import re as _re
+
+from app.core.deployment_builder import _slug as _deployment_slug
+from app.core.drift_importer import _slug as _drift_slug
+
+# "A name must start with a letter or underscore and may contain only
+# letters, digits, underscores, and dashes." — terraform init
+_TF_IDENTIFIER = _re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
+
+# Names taken from a real NSX-T edge: NAT rules are commonly named after
+# the network they translate, or carry a bare numeric rule id. Both used
+# to slug to something terraform refuses to parse.
+_DIGIT_LEADING = [
+    "172.158.1.0 inet",
+    "172.158.0.3 any",
+    "172.158.0.0 to inet",
+    "196609",
+    "87.255.215.109",
+]
+
+_ALL_SLUGGERS = [_slug, _deployment_slug, _drift_slug]
+
+
+class TestSlugProducesValidIdentifiers:
+    @pytest.mark.parametrize("slugger", _ALL_SLUGGERS)
+    @pytest.mark.parametrize("name", _DIGIT_LEADING)
+    def test_digit_leading_name_is_valid(self, slugger, name):
+        assert _TF_IDENTIFIER.match(slugger(name)), (
+            f"{slugger.__module__}._slug({name!r}) -> {slugger(name)!r} "
+            "is not a valid terraform identifier"
+        )
+
+    @pytest.mark.parametrize("slugger", _ALL_SLUGGERS)
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("GlobalProxy HTTP", "globalproxy_http"),
+            ("ttc_nat_tcp_587", "ttc_nat_tcp_587"),
+            ("My Org", "my_org"),
+        ],
+    )
+    def test_already_valid_names_are_untouched(self, slugger, name, expected):
+        """Renaming these would destroy and recreate live resources."""
+        assert slugger(name) == expected
+
+    @pytest.mark.parametrize("slugger", _ALL_SLUGGERS)
+    @pytest.mark.parametrize("name", ["", "...", "   ", "!!!"])
+    def test_empty_after_stripping_still_valid(self, slugger, name):
+        assert _TF_IDENTIFIER.match(slugger(name))
