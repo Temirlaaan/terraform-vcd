@@ -42,6 +42,18 @@ class Settings(BaseSettings):
     vcd_user: str = ""
     vcd_password: str = ""
 
+    # Secondary VCD — a second cloud we can read metadata from and deploy
+    # into, for cloud-to-cloud migration. Leave SECONDARY_VCD_URL empty to
+    # disable every second-cloud feature.
+    secondary_vcd_url: str = ""
+    secondary_vcd_api_token: str = ""
+    secondary_vcd_api_version: str = "38.0"
+    secondary_vcd_org: str = "System"
+    secondary_vcd_user: str = ""
+    secondary_vcd_password: str = ""
+    # Shown in the UI so operators can tell the two clouds apart.
+    secondary_vcd_label: str = "Secondary VCD"
+
     # NSX-T
     nsxt_url: str = ""
     nsxt_user: str = ""
@@ -69,6 +81,41 @@ class Settings(BaseSettings):
     # Telegram
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+
+    def cloud_credentials(self, cloud: str = "primary") -> dict[str, str]:
+        """Provider credentials for a named cloud.
+
+        Single source of truth for "which VCD are we talking to" — used by
+        tf_runner to build TF_VAR_* and by VCDClient for metadata.
+
+        Raises:
+            ValueError: unknown cloud, or the secondary cloud is not configured.
+        """
+        if cloud == "primary":
+            return {
+                "url": self.vcd_url,
+                "user": self.vcd_user,
+                "password": self.vcd_password,
+                "org": self.vcd_org,
+                "api_token": self.vcd_api_token,
+                "api_version": self.vcd_api_version,
+                "label": "Primary VCD",
+            }
+        if cloud == "secondary":
+            if not self.secondary_vcd_url:
+                raise ValueError(
+                    "Secondary VCD is not configured — set SECONDARY_VCD_URL."
+                )
+            return {
+                "url": self.secondary_vcd_url,
+                "user": self.secondary_vcd_user,
+                "password": self.secondary_vcd_password,
+                "org": self.secondary_vcd_org,
+                "api_token": self.secondary_vcd_api_token,
+                "api_version": self.secondary_vcd_api_version,
+                "label": self.secondary_vcd_label,
+            }
+        raise ValueError(f"Unknown cloud {cloud!r}. Expected 'primary' or 'secondary'.")
 
     @property
     def cors_origins_list(self) -> list[str]:

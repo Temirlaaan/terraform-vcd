@@ -4,7 +4,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from app.auth import AuthenticatedUser, require_roles
-from app.integrations.vcd_client import vcd_client
+from app.integrations.vcd_client import PRIMARY, SECONDARY, VCDClient, get_vcd_client
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +27,26 @@ router = APIRouter(prefix="/metadata", tags=["metadata"])
 _any_role = require_roles("tf-admin", "tf-operator", "tf-viewer")
 
 
+def cloud_client(
+    cloud: str = Query(
+        PRIMARY,
+        pattern=f"^({PRIMARY}|{SECONDARY})$",
+        description="Which VCD to read from. Defaults to the primary cloud.",
+    ),
+) -> VCDClient:
+    """Resolve the ?cloud= query parameter to a VCD client."""
+    try:
+        return get_vcd_client(cloud)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.get("/organizations")
-async def list_organizations(user: AuthenticatedUser = Depends(_any_role)):
+async def list_organizations(user: AuthenticatedUser = Depends(_any_role),
+    vcd: VCDClient = Depends(cloud_client)):
     """Return all VCD organisations (cached 5 min)."""
     try:
-        orgs = await vcd_client.get_organizations()
+        orgs = await vcd.get_organizations()
     except Exception as exc:
         logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail="VCD API is unavailable. Try again later.")
@@ -39,10 +54,11 @@ async def list_organizations(user: AuthenticatedUser = Depends(_any_role)):
 
 
 @router.get("/provider-vdcs")
-async def list_provider_vdcs(user: AuthenticatedUser = Depends(_any_role)):
+async def list_provider_vdcs(user: AuthenticatedUser = Depends(_any_role),
+    vcd: VCDClient = Depends(cloud_client)):
     """Return available Provider VDCs."""
     try:
-        pvdcs = await vcd_client.get_provider_vdcs()
+        pvdcs = await vcd.get_provider_vdcs()
     except Exception as exc:
         logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail="VCD API is unavailable. Try again later.")
@@ -50,10 +66,11 @@ async def list_provider_vdcs(user: AuthenticatedUser = Depends(_any_role)):
 
 
 @router.get("/storage-profiles")
-async def list_storage_profiles(pvdc: str | None = Query(None), user: AuthenticatedUser = Depends(_any_role)):
+async def list_storage_profiles(pvdc: str | None = Query(None), user: AuthenticatedUser = Depends(_any_role),
+    vcd: VCDClient = Depends(cloud_client)):
     """Return storage profiles, optionally filtered by provider VDC."""
     try:
-        profiles = await vcd_client.get_storage_profiles(pvdc=pvdc)
+        profiles = await vcd.get_storage_profiles(pvdc=pvdc)
     except Exception as exc:
         logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail="VCD API is unavailable. Try again later.")
@@ -61,10 +78,11 @@ async def list_storage_profiles(pvdc: str | None = Query(None), user: Authentica
 
 
 @router.get("/vdcs")
-async def list_vdcs(org: str | None = Query(None), user: AuthenticatedUser = Depends(_any_role)):
+async def list_vdcs(org: str | None = Query(None), user: AuthenticatedUser = Depends(_any_role),
+    vcd: VCDClient = Depends(cloud_client)):
     """Return VDCs, optionally filtered by org name."""
     try:
-        vdcs = await vcd_client.get_vdcs(org_name=org)
+        vdcs = await vcd.get_vdcs(org_name=org)
     except Exception as exc:
         logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail="VCD API is unavailable. Try again later.")
@@ -76,10 +94,11 @@ async def list_edge_gateways(
     org: str | None = Query(None),
     vdc: str | None = Query(None),
     user: AuthenticatedUser = Depends(_any_role),
+    vcd: VCDClient = Depends(cloud_client),
 ):
     """Return Edge Gateways, optionally filtered by org and/or vdc."""
     try:
-        edges = await vcd_client.get_edge_gateways(org_name=org, vdc_name=vdc)
+        edges = await vcd.get_edge_gateways(org_name=org, vdc_name=vdc)
     except Exception as exc:
         logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail="VCD API is unavailable. Try again later.")
@@ -87,10 +106,11 @@ async def list_edge_gateways(
 
 
 @router.get("/orgs")
-async def list_orgs(user: AuthenticatedUser = Depends(_any_role)):
+async def list_orgs(user: AuthenticatedUser = Depends(_any_role),
+    vcd: VCDClient = Depends(cloud_client)):
     """Return all VCD organisations as {id, name} items for cascading selects."""
     try:
-        orgs = await vcd_client.get_organizations()
+        orgs = await vcd.get_organizations()
     except Exception as exc:
         logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail="VCD API is unavailable. Try again later.")
@@ -98,11 +118,12 @@ async def list_orgs(user: AuthenticatedUser = Depends(_any_role)):
 
 
 @router.get("/orgs/{org_id}/vdcs")
-async def list_vdcs_by_org(org_id: str = Path(...), user: AuthenticatedUser = Depends(_any_role)):
+async def list_vdcs_by_org(org_id: str = Path(...), user: AuthenticatedUser = Depends(_any_role),
+    vcd: VCDClient = Depends(cloud_client)):
     """Return VDCs belonging to a specific org (by URN ID)."""
     _validate_urn(org_id, "org_id")
     try:
-        vdcs = await vcd_client.get_vdcs_by_org_id(org_id=org_id)
+        vdcs = await vcd.get_vdcs_by_org_id(org_id=org_id)
     except Exception as exc:
         logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail="VCD API is unavailable. Try again later.")
@@ -110,11 +131,12 @@ async def list_vdcs_by_org(org_id: str = Path(...), user: AuthenticatedUser = De
 
 
 @router.get("/vdcs/{vdc_id}/edge-gateways")
-async def list_edge_gateways_by_vdc(vdc_id: str = Path(...), user: AuthenticatedUser = Depends(_any_role)):
+async def list_edge_gateways_by_vdc(vdc_id: str = Path(...), user: AuthenticatedUser = Depends(_any_role),
+    vcd: VCDClient = Depends(cloud_client)):
     """Return Edge Gateways belonging to a specific VDC (by URN ID)."""
     _validate_urn(vdc_id, "vdc_id")
     try:
-        edges = await vcd_client.get_edge_gateways_by_vdc_id(vdc_id=vdc_id)
+        edges = await vcd.get_edge_gateways_by_vdc_id(vdc_id=vdc_id)
     except Exception as exc:
         logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail="VCD API is unavailable. Try again later.")
@@ -122,11 +144,12 @@ async def list_edge_gateways_by_vdc(vdc_id: str = Path(...), user: Authenticated
 
 
 @router.get("/vdcs/{vdc_id}/edge-clusters")
-async def list_edge_clusters_by_vdc(vdc_id: str = Path(...), user: AuthenticatedUser = Depends(_any_role)):
+async def list_edge_clusters_by_vdc(vdc_id: str = Path(...), user: AuthenticatedUser = Depends(_any_role),
+    vcd: VCDClient = Depends(cloud_client)):
     """Return NSX-T Edge Clusters available to a specific VDC."""
     _validate_urn(vdc_id, "vdc_id")
     try:
-        clusters = await vcd_client.get_edge_clusters(vdc_id=vdc_id)
+        clusters = await vcd.get_edge_clusters(vdc_id=vdc_id)
     except Exception as exc:
         logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail="VCD API is unavailable. Try again later.")
@@ -134,10 +157,11 @@ async def list_edge_clusters_by_vdc(vdc_id: str = Path(...), user: Authenticated
 
 
 @router.get("/network-pools")
-async def list_network_pools(pvdc: str | None = Query(None), user: AuthenticatedUser = Depends(_any_role)):
+async def list_network_pools(pvdc: str | None = Query(None), user: AuthenticatedUser = Depends(_any_role),
+    vcd: VCDClient = Depends(cloud_client)):
     """Return network pools, optionally filtered by provider VDC name."""
     try:
-        pools = await vcd_client.get_network_pools(pvdc=pvdc)
+        pools = await vcd.get_network_pools(pvdc=pvdc)
     except Exception as exc:
         logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail="VCD API is unavailable. Try again later.")
@@ -145,10 +169,11 @@ async def list_network_pools(pvdc: str | None = Query(None), user: Authenticated
 
 
 @router.get("/external-networks")
-async def list_external_networks(user: AuthenticatedUser = Depends(_any_role)):
+async def list_external_networks(user: AuthenticatedUser = Depends(_any_role),
+    vcd: VCDClient = Depends(cloud_client)):
     """Return external networks available for Edge Gateway uplinks."""
     try:
-        nets = await vcd_client.get_external_networks()
+        nets = await vcd.get_external_networks()
     except Exception as exc:
         logger.error("VCD API error: %s", exc)
         raise HTTPException(status_code=502, detail="VCD API is unavailable. Try again later.")

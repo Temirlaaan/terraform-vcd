@@ -53,13 +53,20 @@ def cached(prefix: str, ttl: int = _DEFAULT_TTL) -> Callable:
             # Skip `self` for bound methods — its repr contains a memory
             # address that changes across restarts, making the cache useless.
             positional = args
+            scope: str | None = None
             if positional and hasattr(positional[0], "__dict__"):
                 sig = inspect.signature(fn)
                 params = list(sig.parameters.values())
                 if params and params[0].name == "self":
+                    # Dropping `self` entirely would make two clients that
+                    # talk to different VCDs share one cache entry, so an
+                    # instance may name its own namespace via `cache_scope`.
+                    scope = getattr(positional[0], "cache_scope", None)
                     positional = args[1:]
 
             parts = [prefix]
+            if scope:
+                parts.append(str(scope))
             parts.extend(str(a) for a in positional)
             parts.extend(f"{k}={v}" for k, v in sorted(kwargs.items()))
             key = ":".join(parts)

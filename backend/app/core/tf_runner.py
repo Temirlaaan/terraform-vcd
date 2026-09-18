@@ -42,9 +42,19 @@ class TerraformRunner:
         self,
         work_dir: Path,
         operation_id: str | None = None,
+        cloud: str = "primary",
     ) -> None:
+        """
+        Args:
+            cloud: which VCD this run targets — ``"primary"`` (default, the
+                cloud configured via ``VCD_*``) or ``"secondary"`` (``SECONDARY_VCD_*``).
+                Resolved eagerly so a misconfigured second cloud fails here
+                rather than halfway through an apply.
+        """
         self.work_dir = work_dir
         self.operation_id = operation_id
+        self.cloud = cloud
+        self._creds = settings.cloud_credentials(cloud)
         self._tf = settings.terraform_binary
 
     def _build_env(self) -> dict[str, str]:
@@ -59,10 +69,10 @@ class TerraformRunner:
             "LANG": os.environ.get("LANG", "C.UTF-8"),
         }
 
-        # VCD credentials
-        env["TF_VAR_vcd_url"] = settings.vcd_url.rstrip("/") + "/api"
-        env["TF_VAR_vcd_user"] = settings.vcd_user
-        env["TF_VAR_vcd_password"] = settings.vcd_password
+        # VCD credentials for the cloud this runner was built for
+        env["TF_VAR_vcd_url"] = self._creds["url"].rstrip("/") + "/api"
+        env["TF_VAR_vcd_user"] = self._creds["user"]
+        env["TF_VAR_vcd_password"] = self._creds["password"]
 
         # S3/MinIO backend credentials
         for key in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_DEFAULT_REGION"):

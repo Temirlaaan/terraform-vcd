@@ -24,13 +24,30 @@ _CACHE_TTL = 300  # seconds
 class VCDClient:
     """Lightweight async client for the VCD CloudAPI."""
 
-    def __init__(self) -> None:
-        self._base = settings.vcd_url.rstrip("/")
-        self._api_version = settings.vcd_api_version
-        self._api_token = settings.vcd_api_token
+    def __init__(
+        self,
+        url: str | None = None,
+        api_token: str | None = None,
+        api_version: str | None = None,
+        cache_scope: str = "primary",
+    ) -> None:
+        """Point at the primary VCD by default, or at another one explicitly.
+
+        ``cache_scope`` namespaces this instance's Redis cache entries. The
+        ``@cached`` decorator drops ``self`` from the key, so without it two
+        clients on different VCDs would serve each other's answers.
+        """
+        self._base = (settings.vcd_url if url is None else url).rstrip("/")
+        self._api_version = api_version or settings.vcd_api_version
+        self._api_token = settings.vcd_api_token if api_token is None else api_token
+        self.cache_scope = cache_scope
         self._bearer_token: str | None = None
         self._token_expires_at: float = 0
         self._token_lock = asyncio.Lock()
+
+    @property
+    def base_url(self) -> str:
+        return self._base
 
     # ------------------------------------------------------------------
     # Auth — OAuth token exchange
@@ -417,5 +434,39 @@ class VCDClient:
         return nets
 
 
-# Module-level singleton.
+# Module-level singleton — the primary cloud, configured via VCD_*.
 vcd_client = VCDClient()
+
+# The second cloud, when SECONDARY_VCD_URL is configured. None otherwise, so
+# callers can tell "not set up" apart from "set up but unreachable".
+secondary_vcd_client: VCDClient | None = (
+    VCDClient(
+        url=settings.secondary_vcd_url,
+        api_token=settings.secondary_vcd_api_token,
+        api_version=settings.secondary_vcd_api_version,
+        cache_scope="secondary",
+    )
+    if settings.secondary_vcd_url
+    else None
+)
+
+PRIMARY = "primary"
+SECONDARY = "secondary"
+
+
+def get_vcd_client(cloud: str = PRIMARY) -> VCDClient:
+    """Resolve a cloud name to its client.
+
+    Raises:
+        ValueError: unknown cloud name, or the secondary cloud was asked for
+            without SECONDARY_VCD_URL being configured.
+    """
+    if cloud == PRIMARY:
+        return vcd_client
+    if cloud == SECONDARY:
+        if secondary_vcd_client is None:
+            raise ValueError(
+                "Secondary VCD is not configured — set SECONDARY_VCD_URL."
+            )
+        return secondary_vcd_client
+    raise ValueError(f"Unknown cloud {cloud!r}. Expected {PRIMARY!r} or {SECONDARY!r}.")

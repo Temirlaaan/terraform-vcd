@@ -118,6 +118,12 @@ const ALL_NAV_ITEMS: NavItem[] = [
     label: "Migration",
     requireRoles: ["tf-admin", "tf-operator"],
   },
+  {
+    to: "/cloud-migration",
+    icon: Cloud,
+    label: "Cloud → Cloud",
+    requireRoles: ["tf-admin", "tf-operator"],
+  },
   { to: "/deployments", icon: FolderOpen, label: "My Deployments" },
   {
     to: "/settings",
