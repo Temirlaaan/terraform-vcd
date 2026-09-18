@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -6,6 +7,8 @@ from pathlib import Path
 from redis.asyncio import Redis
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 _LOG_CHANNEL_PREFIX = "operation:"
 _LOG_CHANNEL_SUFFIX = ":logs"
@@ -79,6 +82,29 @@ class TerraformRunner:
             val = os.environ.get(key)
             if val:
                 env[key] = val
+
+        # Egress proxy, when the host uses one. This env is an allowlist, so
+        # without these terraform would try to reach the registry directly
+        # and fail where curl on the same host succeeds.
+        for key in (
+            "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+            "http_proxy", "https_proxy", "no_proxy",
+        ):
+            val = os.environ.get(key)
+            if val:
+                env[key] = val
+
+        # Shared provider cache. Each operation gets its own workspace, so
+        # without this every plan re-downloads the VCD provider and a
+        # registry hiccup fails the run. The cache lives on the workspaces
+        # volume, so it survives restarts and only the first run needs the
+        # network.
+        cache_dir = Path(settings.tf_workspace_base) / ".plugin-cache"
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            env["TF_PLUGIN_CACHE_DIR"] = str(cache_dir)
+        except OSError as exc:
+            logger.warning("plugin cache unavailable at %s: %s", cache_dir, exc)
 
         # Disable interactive prompts and colour codes for machine-readable output
         env["TF_INPUT"] = "false"
