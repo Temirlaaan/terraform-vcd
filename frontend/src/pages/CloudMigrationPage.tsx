@@ -3,6 +3,10 @@ import { ArrowRight, Loader2, AlertTriangle, Server } from "lucide-react";
 import { FormSelect } from "@/components/shared";
 import { MigrationHclPreview } from "@/components/migration/MigrationHclPreview";
 import {
+  AddressRemapTable,
+  isValidIpv4,
+} from "@/components/migration/AddressRemapTable";
+import {
   useClouds,
   useCloudOrgs,
   useCloudVdcs,
@@ -158,6 +162,7 @@ export function CloudMigrationPage() {
   const [source, setSource] = useState<EndpointState>(EMPTY);
   const [target, setTarget] = useState<EndpointState>(EMPTY);
   const preview = useCloudMigrationPreview();
+  const [ipMapping, setIpMapping] = useState<Record<string, string>>({});
 
   const clouds = cloudsQuery.data ?? [];
   const sameEdge =
@@ -168,8 +173,11 @@ export function CloudMigrationPage() {
 
   const result: PreviewResponse | undefined = preview.data;
 
+  const badMapping = Object.values(ipMapping).some((v) => !isValidIpv4(v));
+
   const handlePreview = () =>
     preview.mutate({
+      ip_mapping: ipMapping,
       source_cloud: source.cloud as CloudId,
       source_org: source.orgName,
       source_vdc: source.vdcName,
@@ -201,7 +209,10 @@ export function CloudMigrationPage() {
           title="Source"
           subtitle="Read configuration from here"
           state={source}
-          onChange={setSource}
+          onChange={(next) => {
+            setSource(next);
+            setIpMapping({});
+          }}
           clouds={clouds}
           cloudsLoading={cloudsQuery.isLoading}
         />
@@ -227,11 +238,15 @@ export function CloudMigrationPage() {
       <div className="flex items-center gap-3">
         <button
           onClick={handlePreview}
-          disabled={!ready || preview.isPending}
+          disabled={!ready || preview.isPending || badMapping}
           className="inline-flex items-center gap-2 rounded-sm bg-clr-action px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {preview.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {preview.isPending ? "Reading source edge..." : "Generate HCL"}
+          {preview.isPending
+            ? "Reading source edge..."
+            : result
+              ? "Regenerate HCL"
+              : "Generate HCL"}
         </button>
         {preview.isError && (
           <span className="text-xs text-clr-danger">
@@ -243,6 +258,12 @@ export function CloudMigrationPage() {
 
       {result && (
         <>
+          <AddressRemapTable
+            addresses={result.addresses}
+            mapping={ipMapping}
+            onChange={setIpMapping}
+          />
+
           <section className="rounded-sm border border-clr-border bg-white p-4">
             <h2 className="text-sm font-semibold text-clr-text mb-2">
               What will be created

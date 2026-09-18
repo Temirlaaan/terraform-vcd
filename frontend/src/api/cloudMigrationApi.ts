@@ -99,6 +99,16 @@ export interface PreviewRequest {
   target_vdc_id: string;
   target_edge_id: string;
   target_edge_name?: string;
+
+  /** Old address -> new address, applied to NAT rules and IP sets. */
+  ip_mapping?: Record<string, string>;
+}
+
+export interface AddressUse {
+  address: string;
+  kind: "external" | "ip_set" | "internal" | "route";
+  occurrences: number;
+  used_by: string[];
 }
 
 export interface PreviewResponse {
@@ -106,6 +116,7 @@ export interface PreviewResponse {
   summary: Record<string, number>;
   warnings: string[];
   spec: unknown;
+  addresses: AddressUse[];
 }
 
 export function useCloudMigrationPreview() {

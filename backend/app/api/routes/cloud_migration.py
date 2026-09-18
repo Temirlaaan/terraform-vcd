@@ -20,6 +20,7 @@ from app.auth import AuthenticatedUser, require_roles
 from app.config import settings
 from app.core.deployment_builder import build_hcl, summary_from_spec
 from app.core.edge_reader import EdgeReadError, read_edge_spec, retarget
+from app.core.ip_remap import apply_mapping, collect_addresses
 from app.integrations.vcd_client import PRIMARY, SECONDARY, get_vcd_client
 from app.schemas.deployment_spec import DeploymentSpec, TargetSpec
 
@@ -63,6 +64,15 @@ class PreviewRequest(BaseModel):
     target_edge_id: str = Field(..., min_length=1)
     target_edge_name: str | None = None
 
+    ip_mapping: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Old address -> new address. The destination cloud allocates its "
+            "own public IPs, so NAT rules and IP sets naming the source "
+            "address have to be rewritten."
+        ),
+    )
+
     @model_validator(mode="after")
     def _check_distinct(self) -> "PreviewRequest":
         if self.source_cloud == self.target_cloud and (
@@ -72,11 +82,21 @@ class PreviewRequest(BaseModel):
         return self
 
 
+class AddressUse(BaseModel):
+    address: str
+    kind: str
+    occurrences: int
+    used_by: list[str]
+
+
 class PreviewResponse(BaseModel):
     hcl: str
     summary: dict
     warnings: list[str]
     spec: DeploymentSpec
+    # Addresses found in the source, so the UI can offer a remap table
+    # instead of making someone grep the generated HCL.
+    addresses: list[AddressUse]
 
 
 # ---------------------------------------------------------------------------
@@ -173,9 +193,9 @@ async def preview(
     """Read the source edge and render HCL aimed at the destination edge."""
     logger.info(
         "user=%s action=cloud_migration_preview src_cloud=%s src_edge=%s "
-        "dst_cloud=%s dst_edge=%s",
+        "dst_cloud=%s dst_edge=%s ip_remaps=%d",
         user.username, body.source_cloud, body.source_edge_id,
-        body.target_cloud, body.target_edge_id,
+        body.target_cloud, body.target_edge_id, len(body.ip_mapping),
     )
 
     try:
@@ -196,6 +216,15 @@ async def preview(
     except EdgeReadError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
+    # Addresses are reported from the source, before any rewriting, so the
+    # table the operator sees matches what is actually on the source edge.
+    addresses = collect_addresses(spec)
+
+    try:
+        spec = apply_mapping(spec, body.ip_mapping)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     aimed = retarget(spec, TargetSpec(
         org=body.target_org,
         vdc=body.target_vdc,
@@ -208,9 +237,22 @@ async def preview(
     # summary_from_spec() does not count IP sets — they matter here because
     # firewall rules reference them by name across clouds.
     summary = {**summary_from_spec(aimed), "ip_sets_total": len(aimed.ip_sets)}
+    warnings = _collect_warnings(aimed)
+    unmapped = [
+        a["address"] for a in addresses
+        if a["kind"] == "external" and a["address"] not in body.ip_mapping
+    ]
+    if unmapped:
+        warnings.insert(0, (
+            "Public address still pointing at the source cloud: "
+            + ", ".join(unmapped)
+            + ". The destination does not own it, so those NAT rules will not work."
+        ))
+
     return PreviewResponse(
         hcl=hcl,
         summary=summary,
-        warnings=_collect_warnings(aimed),
+        warnings=warnings,
         spec=aimed,
+        addresses=[AddressUse(**a) for a in addresses],
     )

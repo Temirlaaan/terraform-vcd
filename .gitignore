@@ -38,6 +38,9 @@ frontend/.env
 
 # Terraform and Workspaces
 /tmp/tf-workspaces/
+# HCL downloaded from the dashboard — generated output, not source
+/migration_*.tf
+/deployment_*.tf
 *.tfstate
 *.tfstate.backup
 .terraform/
