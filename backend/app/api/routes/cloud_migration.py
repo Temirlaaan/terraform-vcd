@@ -11,13 +11,29 @@ The two clouds are ``primary`` (``VCD_*``) and ``secondary``
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field, model_validator
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import AuthenticatedUser, require_roles
 from app.config import settings
+from app.core.aria_attribution import Attribution, retag_hcl
+from app.core.locking import (
+    acquire_org_lock,
+    get_org_lock_holder,
+    release_org_lock,
+)
+from app.core.tf_runner import TerraformRunner
+from app.core.tf_workspace import TerraformWorkspace
+from app.database import get_db
+from app.models.operation import Operation, OperationStatus, OperationType
 from app.core.deployment_builder import build_hcl, summary_from_spec
 from app.core.edge_reader import EdgeReadError, read_edge_spec, retarget
 from app.core.ip_remap import apply_mapping, collect_addresses
@@ -256,3 +272,249 @@ async def preview(
         spec=aimed,
         addresses=[AddressUse(**a) for a in addresses],
     )
+
+
+# ---------------------------------------------------------------------------
+#  Terraform: plan and apply against the destination cloud
+# ---------------------------------------------------------------------------
+
+class PlanRequest(BaseModel):
+    target_cloud: str = Field(..., pattern=f"^({PRIMARY}|{SECONDARY})$")
+    target_org: str = Field(..., min_length=1)
+    target_vdc: str = Field("", description="Recorded for the operator, not used by terraform")
+    target_edge_id: str = Field(..., min_length=1)
+    target_edge_name: str | None = None
+    hcl: str = Field(..., min_length=1)
+
+
+class ApplyRequest(BaseModel):
+    target_cloud: str = Field(..., pattern=f"^({PRIMARY}|{SECONDARY})$")
+    target_org: str = Field(..., min_length=1)
+    plan_operation_id: uuid.UUID = Field(
+        ..., description="The plan whose workspace (and plan.bin) to apply"
+    )
+
+
+class OperationStarted(BaseModel):
+    operation_id: uuid.UUID
+
+
+def _lock_scope(cloud: str, org: str) -> str:
+    """Lock and workspace name.
+
+    The org lock is keyed by name only, and the same org name routinely
+    exists on both clouds -- CLT_ADAMANT_SYSTEMS is on each. Without the
+    cloud in the key, work on one cloud would block the other for no
+    reason, and two runs against the *same* edge would share a directory.
+    """
+    return f"{cloud}-{org}"
+
+
+def _state_key(cloud: str, edge_id: str) -> str:
+    """Terraform state location for one edge on one cloud.
+
+    Deliberately not the deployment state key: these resources live on a
+    cloud the Deployment table cannot express yet, and sharing a key would
+    let the nightly drift job reconcile them against the wrong VCD.
+    """
+    edge_slug = edge_id.rsplit(":", 1)[-1] or "edge"
+    return f"cloud-migration/{cloud}/{edge_slug}/terraform.tfstate"
+
+
+def _write_workspace(
+    cloud: str,
+    org: str,
+    operation_id: uuid.UUID,
+    edge_id: str,
+    hcl: str,
+    username: str,
+) -> TerraformWorkspace:
+    """Materialise main.tf and a provider aimed at the destination cloud."""
+    creds = settings.cloud_credentials(cloud)
+    workspace = TerraformWorkspace(_lock_scope(cloud, org), operation_id)
+    workspace.work_dir.mkdir(parents=True, exist_ok=True)
+
+    tagged = retag_hcl(
+        hcl, Attribution(kc_username=username or "unknown", op_id=str(operation_id))
+    )
+    (workspace.work_dir / "main.tf").write_text(tagged, encoding="utf-8")
+
+    tpl_dir = Path(__file__).resolve().parents[3] / "templates" / "migration"
+    jenv = Environment(
+        loader=FileSystemLoader(str(tpl_dir)),
+        autoescape=False,
+        keep_trailing_newline=True,
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+    (workspace.work_dir / "provider.tf").write_text(
+        jenv.get_template("provider.tf.j2").render(
+            state_key=_state_key(cloud, edge_id),
+            sysorg=creds["org"] or "System",
+        ),
+        encoding="utf-8",
+    )
+    return workspace
+
+
+async def _finish(operation_id: uuid.UUID, lock_name: str, result, plan_output: str = "") -> None:
+    """Record the outcome and always let go of the lock."""
+    from app.database import async_session
+
+    try:
+        async with async_session() as db:
+            op = await db.get(Operation, operation_id)
+            if op is not None:
+                op.status = (
+                    OperationStatus.SUCCESS if result.success else OperationStatus.FAILED
+                )
+                op.completed_at = datetime.now(timezone.utc)
+                if plan_output:
+                    op.plan_output = plan_output
+                if not result.success:
+                    op.error_message = result.stderr
+                await db.commit()
+    finally:
+        await release_org_lock(lock_name, str(operation_id))
+
+
+async def _run_plan(
+    operation_id: uuid.UUID, lock_name: str, workspace: TerraformWorkspace, cloud: str
+) -> None:
+    """init then plan. No pre-apply imports: that helper reads the primary
+    VCD, which is not necessarily the cloud we are writing to."""
+    runner = TerraformRunner(
+        workspace.work_dir, operation_id=str(operation_id), cloud=cloud
+    )
+    init = await runner.init()
+    if not init.success:
+        await _finish(operation_id, lock_name, init)
+        return
+    result = await runner.plan()
+    await _finish(operation_id, lock_name, result, plan_output=result.stdout)
+
+
+async def _run_apply(
+    operation_id: uuid.UUID, lock_name: str, workspace: TerraformWorkspace, cloud: str
+) -> None:
+    runner = TerraformRunner(
+        workspace.work_dir, operation_id=str(operation_id), cloud=cloud
+    )
+    result = await runner.apply()
+    await _finish(operation_id, lock_name, result, plan_output=result.stdout)
+
+
+@router.post("/plan", response_model=OperationStarted)
+async def plan(
+    body: PlanRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AuthenticatedUser = Depends(_WRITE_ROLES),
+) -> OperationStarted:
+    """Run init + plan against the destination cloud.
+
+    Returns immediately so the UI can open the log WebSocket before output
+    starts arriving.
+    """
+    try:
+        settings.cloud_credentials(body.target_cloud)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    operation_id = uuid.uuid4()
+    lock_name = _lock_scope(body.target_cloud, body.target_org)
+
+    logger.info(
+        "user=%s action=cloud_migration_plan cloud=%s org=%s edge=%s operation_id=%s",
+        user.username, body.target_cloud, body.target_org,
+        body.target_edge_id, operation_id,
+    )
+
+    if not await acquire_org_lock(lock_name, str(operation_id)):
+        holder = await get_org_lock_holder(lock_name)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"'{body.target_org}' on {body.target_cloud} is locked by "
+                f"operation {holder}. Wait for it to finish."
+            ),
+        )
+
+    db.add(Operation(
+        id=operation_id,
+        type=OperationType.PLAN,
+        status=OperationStatus.RUNNING,
+        user_id=user.sub,
+        username=user.username,
+        target_org=body.target_org,
+        target_edge_id=body.target_edge_id,
+    ))
+    await db.commit()
+
+    try:
+        workspace = _write_workspace(
+            body.target_cloud, body.target_org, operation_id,
+            body.target_edge_id, body.hcl, user.username,
+        )
+    except Exception as exc:
+        logger.exception("cloud migration workspace failed for %s", operation_id)
+        op = await db.get(Operation, operation_id)
+        if op is not None:
+            op.status = OperationStatus.FAILED
+            op.error_message = str(exc)
+            op.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+        await release_org_lock(lock_name, str(operation_id))
+        raise HTTPException(status_code=500, detail=f"Could not create workspace: {exc}")
+
+    asyncio.create_task(_run_plan(operation_id, lock_name, workspace, body.target_cloud))
+    return OperationStarted(operation_id=operation_id)
+
+
+@router.post("/apply", response_model=OperationStarted)
+async def apply(
+    body: ApplyRequest,
+    db: AsyncSession = Depends(get_db),
+    user: AuthenticatedUser = Depends(_WRITE_ROLES),
+) -> OperationStarted:
+    """Apply the plan produced by ``plan_operation_id``.
+
+    Reuses that run's workspace, which still holds plan.bin, so what gets
+    applied is exactly what was reviewed.
+    """
+    lock_name = _lock_scope(body.target_cloud, body.target_org)
+    workspace = TerraformWorkspace(lock_name, body.plan_operation_id)
+    if not (workspace.work_dir / "plan.bin").exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "That plan's workspace is gone — plans do not survive a "
+                "backend restart or cleanup. Run the plan again."
+            ),
+        )
+
+    operation_id = uuid.uuid4()
+    logger.info(
+        "user=%s action=cloud_migration_apply cloud=%s org=%s plan_op=%s operation_id=%s",
+        user.username, body.target_cloud, body.target_org,
+        body.plan_operation_id, operation_id,
+    )
+
+    if not await acquire_org_lock(lock_name, str(operation_id)):
+        holder = await get_org_lock_holder(lock_name)
+        raise HTTPException(
+            status_code=409,
+            detail=f"'{body.target_org}' is locked by operation {holder}.",
+        )
+
+    db.add(Operation(
+        id=operation_id,
+        type=OperationType.APPLY,
+        status=OperationStatus.RUNNING,
+        user_id=user.sub,
+        username=user.username,
+        target_org=body.target_org,
+    ))
+    await db.commit()
+
+    asyncio.create_task(_run_apply(operation_id, lock_name, workspace, body.target_cloud))
+    return OperationStarted(operation_id=operation_id)

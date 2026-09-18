@@ -130,3 +130,50 @@ export function useCloudMigrationPreview() {
     },
   });
 }
+
+/* ------------------------------------------------------------------ */
+/*  Terraform against the destination cloud                            */
+/* ------------------------------------------------------------------ */
+
+export interface PlanRequest {
+  target_cloud: CloudId;
+  target_org: string;
+  target_vdc: string;
+  target_edge_id: string;
+  target_edge_name?: string;
+  hcl: string;
+}
+
+export interface ApplyRequest {
+  target_cloud: CloudId;
+  target_org: string;
+  plan_operation_id: string;
+}
+
+interface OperationStarted {
+  operation_id: string;
+}
+
+export function useCloudMigrationPlan() {
+  return useMutation({
+    mutationFn: async (body: PlanRequest) => {
+      const { data } = await api.post<OperationStarted>(
+        "/api/v1/cloud-migration/plan",
+        body,
+      );
+      return data;
+    },
+  });
+}
+
+export function useCloudMigrationApply() {
+  return useMutation({
+    mutationFn: async (body: ApplyRequest) => {
+      const { data } = await api.post<OperationStarted>(
+        "/api/v1/cloud-migration/apply",
+        body,
+      );
+      return data;
+    },
+  });
+}

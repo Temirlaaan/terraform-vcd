@@ -12,9 +12,12 @@ import {
   useCloudVdcs,
   useCloudEdges,
   useCloudMigrationPreview,
+  useCloudMigrationPlan,
+  useCloudMigrationApply,
   type CloudId,
   type PreviewResponse,
 } from "@/api/cloudMigrationApi";
+import { useConfigStore } from "@/store/useConfigStore";
 
 /* ------------------------------------------------------------------ */
 /*  One side of the transfer: cloud → org → VDC → edge                 */
@@ -163,6 +166,13 @@ export function CloudMigrationPage() {
   const [target, setTarget] = useState<EndpointState>(EMPTY);
   const preview = useCloudMigrationPreview();
   const [ipMapping, setIpMapping] = useState<Record<string, string>>({});
+  const planMutation = useCloudMigrationPlan();
+  const applyMutation = useCloudMigrationApply();
+  // The plan whose workspace still holds plan.bin — apply reuses it so
+  // what lands on the destination is exactly what was reviewed.
+  const [planOpId, setPlanOpId] = useState<string | null>(null);
+  const setOperation = useConfigStore((s) => s.setOperation);
+  const openTerminal = useConfigStore((s) => s.openTerminal);
 
   const clouds = cloudsQuery.data ?? [];
   const sameEdge =
@@ -175,7 +185,63 @@ export function CloudMigrationPage() {
 
   const badMapping = Object.values(ipMapping).some((v) => !isValidIpv4(v));
 
-  const handlePreview = () =>
+  const handlePlan = () => {
+    if (!result) return;
+    setOperation(null, "planning");
+    openTerminal();
+    planMutation.mutate(
+      {
+        target_cloud: target.cloud as CloudId,
+        target_org: target.orgName,
+        target_vdc: target.vdcName,
+        target_edge_id: target.edgeId,
+        target_edge_name: target.edgeName,
+        hcl: result.hcl,
+      },
+      {
+        onSuccess: (d) => {
+          setPlanOpId(d.operation_id);
+          setOperation(d.operation_id, "planning");
+          openTerminal();
+        },
+        onError: (e) => {
+          const msg =
+            (e as { response?: { data?: { detail?: string } } })?.response?.data
+              ?.detail ?? "Plan failed to start";
+          setOperation(null, "error", msg);
+        },
+      },
+    );
+  };
+
+  const handleApply = () => {
+    if (!planOpId) return;
+    setOperation(planOpId, "applying");
+    openTerminal();
+    applyMutation.mutate(
+      {
+        target_cloud: target.cloud as CloudId,
+        target_org: target.orgName,
+        plan_operation_id: planOpId,
+      },
+      {
+        onSuccess: (d) => {
+          setOperation(d.operation_id, "applying");
+          openTerminal();
+        },
+        onError: (e) => {
+          const msg =
+            (e as { response?: { data?: { detail?: string } } })?.response?.data
+              ?.detail ?? "Apply failed to start";
+          setOperation(planOpId, "error", msg);
+        },
+      },
+    );
+  };
+
+  const handlePreview = () => {
+    // Regenerating invalidates the reviewed plan.
+    setPlanOpId(null);
     preview.mutate({
       ip_mapping: ipMapping,
       source_cloud: source.cloud as CloudId,
@@ -191,6 +257,7 @@ export function CloudMigrationPage() {
       target_edge_id: target.edgeId,
       target_edge_name: target.edgeName,
     });
+  };
 
   return (
     <div className="p-6 max-w-6xl space-y-4">
@@ -300,6 +367,45 @@ export function CloudMigrationPage() {
             hcl={result.hcl}
             edgeName={target.edgeName || "target_edge"}
           />
+
+          <section className="rounded-sm border border-clr-border bg-white p-4">
+            <h2 className="text-sm font-semibold text-clr-text mb-1">
+              Apply to {target.orgName} on{" "}
+              {clouds.find((c) => c.id === target.cloud)?.label ?? target.cloud}
+            </h2>
+            <p className="text-xs text-clr-text-secondary mb-3">
+              Plan first and read the output. Apply runs exactly that plan —
+              regenerating the HCL discards it.
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handlePlan}
+                disabled={planMutation.isPending}
+                className="inline-flex items-center gap-2 rounded-sm border border-clr-border bg-white px-3 py-1.5 text-sm font-medium text-clr-text disabled:opacity-50"
+              >
+                {planMutation.isPending && (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                )}
+                Plan
+              </button>
+              <button
+                onClick={handleApply}
+                disabled={!planOpId || applyMutation.isPending}
+                title={planOpId ? undefined : "Run a plan first"}
+                className="inline-flex items-center gap-2 rounded-sm bg-clr-action px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {applyMutation.isPending && (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                )}
+                Apply
+              </button>
+              {planOpId && (
+                <span className="text-xs text-clr-text-secondary">
+                  Plan ready — check the terminal before applying.
+                </span>
+              )}
+            </div>
+          </section>
         </>
       )}
     </div>
