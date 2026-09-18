@@ -119,15 +119,27 @@ def _collect_warnings(spec: DeploymentSpec) -> list[str]:
 
     known_profiles = {p.name for p in spec.app_port_profiles}
     known_ip_sets = {s.name for s in spec.ip_sets}
+    # Platform profiles are referenced through a data source rather than
+    # recreated, so they are expected — but only if the destination has one
+    # by the same name, which is worth saying out loud once.
+    platform_profiles = {
+        p.name for p in spec.app_port_profiles if p.scope != "TENANT"
+    }
+    if platform_profiles:
+        warnings.append(
+            "Looked up on the destination by name, not copied: "
+            + ", ".join(sorted(platform_profiles))
+            + ". The apply fails if the destination has no profile so named."
+        )
 
     for r in spec.nat_rules:
         if not r.name:
             warnings.append("A NAT rule has no name — it cannot be matched on the destination")
         if r.app_port_profile_name and r.app_port_profile_name not in known_profiles:
             warnings.append(
-                f"NAT rule {r.name!r} uses app port profile "
-                f"{r.app_port_profile_name!r}, which is not TENANT-scoped here — "
-                "it must already exist on the destination cloud"
+                f"NAT rule {r.name!r} points at app port profile "
+                f"{r.app_port_profile_name!r}, which was not found on the source — "
+                "the rule would be created with no port restriction at all"
             )
 
     for r in spec.firewall_rules:
@@ -141,7 +153,8 @@ def _collect_warnings(spec: DeploymentSpec) -> list[str]:
             if ref not in known_profiles:
                 warnings.append(
                     f"Firewall rule {r.name!r} references app port profile {ref!r}, "
-                    "which must already exist on the destination cloud"
+                    "which was not found on the source — the rule would be created "
+                    "without that port restriction"
                 )
 
     if not any([spec.ip_sets, spec.nat_rules, spec.firewall_rules, spec.static_routes]):

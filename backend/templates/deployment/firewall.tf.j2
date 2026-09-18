@@ -17,8 +17,8 @@ resource "vcd_nsxt_firewall" "deployment" {
 {% if rule.destination_slugs %}
     destination_ids = [{% for s in rule.destination_slugs %}vcd_nsxt_ip_set.{{ s }}.id{% if not loop.last %}, {% endif %}{% endfor %}]
 {% endif %}
-{% if rule.app_port_profile_slugs %}
-    app_port_profile_ids = [{% for s in rule.app_port_profile_slugs %}vcd_nsxt_app_port_profile.{{ s }}.id{% if not loop.last %}, {% endif %}{% endfor %}]
+{% if rule.app_port_profile_refs %}
+    app_port_profile_ids = [{% for r in rule.app_port_profile_refs %}{{ r }}{% if not loop.last %}, {% endif %}{% endfor %}]
 {% endif %}
   }
 

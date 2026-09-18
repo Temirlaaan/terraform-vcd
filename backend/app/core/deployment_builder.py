@@ -102,6 +102,16 @@ def build_hcl(spec: DeploymentSpec) -> str:
 
     ip_set_name_to_slug = _build_name_to_slug(spec.ip_sets, ip_set_slugs)
     profile_name_to_slug = _build_name_to_slug(spec.app_port_profiles, profile_slugs)
+    # Full HCL references, so a data-sourced profile and a created one are
+    # interchangeable at the point of use.
+    profile_name_to_ref = {
+        item.name: (
+            f"data.vcd_nsxt_app_port_profile.{slug}.id"
+            if item.scope != "TENANT"
+            else f"vcd_nsxt_app_port_profile.{slug}.id"
+        )
+        for item, slug in zip(spec.app_port_profiles, profile_slugs)
+    }
 
     ip_sets_ctx = [
         {
@@ -119,6 +129,9 @@ def build_hcl(spec: DeploymentSpec) -> str:
             "name": item.name,
             "description": item.description,
             "scope": item.scope,
+            # SYSTEM/PROVIDER profiles are defined by the platform, not by us:
+            # they are looked up with a data source instead of created.
+            "is_data": item.scope != "TENANT",
             "app_ports": [
                 {"protocol": p.protocol, "ports": p.ports} for p in item.app_ports
             ],
@@ -138,8 +151,8 @@ def build_hcl(spec: DeploymentSpec) -> str:
             "destination_slugs": _resolve_refs(
                 rule.destination_ip_set_names, ip_set_name_to_slug
             ),
-            "app_port_profile_slugs": _resolve_refs(
-                rule.app_port_profile_names, profile_name_to_slug
+            "app_port_profile_refs": _resolve_refs(
+                rule.app_port_profile_names, profile_name_to_ref
             ),
         }
         for rule in spec.firewall_rules
@@ -155,8 +168,8 @@ def build_hcl(spec: DeploymentSpec) -> str:
             "internal_address": rule.internal_address,
             "dnat_external_port": rule.dnat_external_port,
             "snat_destination_address": rule.snat_destination_address,
-            "app_port_profile_slug": (
-                profile_name_to_slug.get(rule.app_port_profile_name)
+            "app_port_profile_ref": (
+                profile_name_to_ref.get(rule.app_port_profile_name)
                 if rule.app_port_profile_name
                 else None
             ),

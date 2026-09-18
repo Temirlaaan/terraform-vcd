@@ -68,13 +68,16 @@ async def read_ip_sets(vcd: VCDClient, edge_id: str) -> list[IpSetSpec]:
 
 async def read_app_port_profiles(
     vcd: VCDClient, org_name: str
-) -> tuple[list[AppPortProfileSpec], dict[str, str]]:
-    """Return TENANT-scope profiles plus an id→name map covering every scope.
+) -> tuple[list[AppPortProfileSpec], dict[str, str], dict[str, str]]:
+    """Read app port profiles.
 
-    The map is what lets NAT and firewall rules refer to profiles by name —
-    including SYSTEM ones, which are not copied but do exist on both clouds.
+    Returns TENANT-scope profiles (which get recreated on the destination),
+    an id→name map, and a name→scope map.  The latter two cover every scope,
+    because NAT and firewall rules routinely point at SYSTEM profiles that
+    exist on both clouds and must be referenced rather than copied.
     """
     id_to_name: dict[str, str] = {}
+    scope_by_name: dict[str, str] = {}
     tenant: list[AppPortProfileSpec] = []
 
     for scope in ("TENANT", "SYSTEM", "PROVIDER"):
@@ -92,6 +95,8 @@ async def read_app_port_profiles(
             pid, pname = p.get("id"), p.get("name")
             if pid and pname:
                 id_to_name[pid] = pname
+            if pname:
+                scope_by_name[pname] = scope
             if scope != "TENANT":
                 continue
             if (p.get("orgRef") or {}).get("name") != org_name:
@@ -108,7 +113,46 @@ async def read_app_port_profiles(
                     for ap in (p.get("applicationPorts") or [])
                 ],
             ))
-    return tenant, id_to_name
+    return tenant, id_to_name, scope_by_name
+
+
+def _referenced_platform_profiles(
+    tenant: list[AppPortProfileSpec],
+    nat_rules: list[NatRuleSpec],
+    firewall_rules: list[FirewallRuleSpec],
+    scope_by_name: dict[str, str],
+) -> list[AppPortProfileSpec]:
+    """Platform-owned profiles that rules actually point at.
+
+    A SYSTEM profile like HTTPS is not ours to recreate, but a rule that
+    references one still has to say so on the destination.  Leaving it out
+    does not fail the apply -- it produces a NAT rule with no port
+    restriction at all, which is far worse than an error, so every
+    referenced profile is carried into the spec and rendered as a data
+    source by ``deployment_builder``.
+    """
+    known = {p.name for p in tenant}
+    wanted: list[str] = []
+    for r in nat_rules:
+        if r.app_port_profile_name:
+            wanted.append(r.app_port_profile_name)
+    for r in firewall_rules:
+        wanted.extend(r.app_port_profile_names)
+
+    out: list[AppPortProfileSpec] = []
+    seen: set[str] = set()
+    for name in wanted:
+        if name in known or name in seen:
+            continue
+        seen.add(name)
+        scope = scope_by_name.get(name)
+        if scope in ("SYSTEM", "PROVIDER"):
+            out.append(AppPortProfileSpec(name=name, scope=scope, app_ports=[]))
+        else:
+            # Neither ours nor the platform's: the destination has no way to
+            # resolve it. Surfaced as a warning by the route.
+            logger.warning("app port profile %r referenced but not found", name)
+    return out
 
 
 async def read_nat_rules(
@@ -219,12 +263,17 @@ async def read_edge_spec(
     """
     try:
         ip_sets = await read_ip_sets(vcd, edge_id)
-        profiles, profile_names = await read_app_port_profiles(vcd, org_name)
+        profiles, profile_names, scope_by_name = await read_app_port_profiles(
+            vcd, org_name
+        )
         nat_rules = await read_nat_rules(vcd, edge_id, profile_names)
         static_routes = await read_static_routes(vcd, edge_id)
         ip_set_names = {s.name: s.name for s in ip_sets}
         firewall_rules = await read_firewall_rules(
             vcd, edge_id, ip_set_names, profile_names
+        )
+        profiles += _referenced_platform_profiles(
+            profiles, nat_rules, firewall_rules, scope_by_name
         )
     except Exception as exc:
         logger.error(

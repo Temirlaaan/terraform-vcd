@@ -1,11 +1,15 @@
 {% for prof in app_port_profiles %}
+{% if prof.is_data %}
+data "vcd_nsxt_app_port_profile" "{{ prof.slug }}" {
+  name  = "{{ prof.name | hcl_escape }}"
+  scope = "{{ prof.scope }}"
+}
+{% else %}
 resource "vcd_nsxt_app_port_profile" "{{ prof.slug }}" {
   name        = "{{ prof.name | hcl_escape }}"
   scope       = "{{ prof.scope }}"
   org         = var.target_org
-{% if prof.scope == 'TENANT' %}
   context_id  = var.target_vdc_id
-{% endif %}
 {% if prof.description %}
   description = "{{ prof.description | hcl_escape }}"
 {% endif %}
@@ -19,5 +23,6 @@ resource "vcd_nsxt_app_port_profile" "{{ prof.slug }}" {
   }
 {% endfor %}
 }
+{% endif %}
 
 {% endfor %}
