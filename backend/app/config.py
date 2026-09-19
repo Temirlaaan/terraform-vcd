@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     # Workspace cleanup — delete workspace directories after completion
     workspace_cleanup_enabled: bool = True
 
+    # Local provider mirror, for hosts with no route to registry.terraform.io.
+    # Expects the standard filesystem-mirror layout underneath:
+    #   <dir>/registry.terraform.io/<namespace>/<type>/<version>/<os>_<arch>/
+    # Empty means terraform resolves providers from the registry as usual.
+    tf_provider_mirror_dir: str = ""
+
     # Phase 4: daily drift sync
     drift_sync_enabled: bool = True
     drift_sync_cron: str = "0 3 * * *"  # 03:00 daily

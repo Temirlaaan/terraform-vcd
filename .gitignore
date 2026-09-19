@@ -40,6 +40,8 @@ frontend/.env
 /tmp/tf-workspaces/
 # HCL downloaded from the dashboard — generated output, not source
 /migration_*.tf
+# Vendored provider binaries — large, fetched per host
+/tf-providers/
 /deployment_*.tf
 *.tfstate
 *.tfstate.backup

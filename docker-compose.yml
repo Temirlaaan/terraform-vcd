@@ -108,6 +108,7 @@ services:
       - SECONDARY_VCD_LABEL=${SECONDARY_VCD_LABEL:-Secondary VCD}
       # Only set these if the host reaches the internet through a proxy;
       # terraform needs them to fetch providers from the registry.
+      - TF_PROVIDER_MIRROR_DIR=${TF_PROVIDER_MIRROR_DIR:-}
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - NO_PROXY=${NO_PROXY:-}
@@ -116,6 +117,9 @@ services:
     volumes:
       - ./backend:/app
       - tf_workspaces:/tmp/tf-workspaces
+      # Local terraform provider mirror, for hosts with no route to
+      # registry.terraform.io. Harmless when the directory is absent.
+      - ./tf-providers:/opt/tf-providers:ro
     depends_on:
       postgres:
         condition: service_healthy

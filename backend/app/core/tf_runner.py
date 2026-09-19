@@ -14,6 +14,50 @@ _LOG_CHANNEL_PREFIX = "operation:"
 _LOG_CHANNEL_SUFFIX = ":logs"
 
 
+def _provider_mirror_cli_config() -> Path | None:
+    """Write a terraform CLI config pointing at the local provider mirror.
+
+    Returns None when no mirror is configured, so terraform keeps talking to
+    the registry. When one is set, providers resolve from disk only —
+    ``direct`` is excluded for the same namespaces, so a host with no route
+    to registry.terraform.io stops failing on ``init``.
+
+    The file is rewritten each call: it is two lines, and this keeps it
+    correct if the mirror path changes without a rebuild.
+    """
+    mirror = (settings.tf_provider_mirror_dir or "").strip()
+    if not mirror:
+        return None
+
+    mirror_path = Path(mirror)
+    if not mirror_path.is_dir():
+        logger.warning(
+            "TF_PROVIDER_MIRROR_DIR=%s does not exist — falling back to the registry",
+            mirror,
+        )
+        return None
+
+    rc_path = Path(settings.tf_workspace_base) / "terraform.rc"
+    try:
+        rc_path.parent.mkdir(parents=True, exist_ok=True)
+        rc_path.write_text(
+            "provider_installation {\n"
+            "  filesystem_mirror {\n"
+            f'    path    = "{mirror_path}"\n'
+            '    include = ["registry.terraform.io/*/*"]\n'
+            "  }\n"
+            "  direct {\n"
+            '    exclude = ["registry.terraform.io/*/*"]\n'
+            "  }\n"
+            "}\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        logger.warning("could not write %s: %s", rc_path, exc)
+        return None
+    return rc_path
+
+
 def log_channel(operation_id: str) -> str:
     """Return the Redis Pub/Sub channel name for a given operation."""
     return f"{_LOG_CHANNEL_PREFIX}{operation_id}{_LOG_CHANNEL_SUFFIX}"
@@ -105,6 +149,11 @@ class TerraformRunner:
             env["TF_PLUGIN_CACHE_DIR"] = str(cache_dir)
         except OSError as exc:
             logger.warning("plugin cache unavailable at %s: %s", cache_dir, exc)
+
+        # Local provider mirror, when the host cannot reach the registry.
+        rc_file = _provider_mirror_cli_config()
+        if rc_file:
+            env["TF_CLI_CONFIG_FILE"] = str(rc_file)
 
         # Disable interactive prompts and colour codes for machine-readable output
         env["TF_INPUT"] = "false"
