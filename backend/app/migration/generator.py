@@ -32,6 +32,18 @@ _SECTION_TEMPLATES: list[str] = [
 # default, so a NO_SNAT that shares it would never be reached.
 _NO_SNAT_PRIORITY = 10
 
+# Writing security_profile_customization sends the whole block: a field
+# left out arrives as 0 and VCD rejects the tunnel rather than filling in
+# a default. These are NSX-T's own defaults, so a migrated tunnel matches
+# what the VCD UI would have produced. VCD's floors are 21600, 900 and 3.
+#
+# NSX-V does not expose these per site, so there is nothing to copy. A
+# lifetime that differs from the peer's rekeys on the shorter side rather
+# than failing, but it is worth checking if a tunnel drops on a schedule.
+_IKE_SA_LIFETIME = 86400
+_TUNNEL_SA_LIFETIME = 3600
+_DPD_PROBE_INTERVAL = 60
+
 
 def _ipsec_no_snat_rules(tunnels: list[dict]) -> list[dict]:
     """NO_SNAT rules so VPN traffic is not translated on its way out.
@@ -419,6 +431,9 @@ class MigrationHCLGenerator:
             "ipsec_skipped": ipsec_skipped,
             "ipsec_no_snat": ipsec_no_snat,
             "no_snat_priority": _NO_SNAT_PRIORITY,
+            "ike_sa_lifetime": _IKE_SA_LIFETIME,
+            "tunnel_sa_lifetime": _TUNNEL_SA_LIFETIME,
+            "dpd_probe_interval": _DPD_PROBE_INTERVAL,
         }
 
         blocks: list[str] = []

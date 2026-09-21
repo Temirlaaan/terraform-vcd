@@ -293,3 +293,45 @@ class TestNoSnat:
         hcl = _render([_tunnel(name="a"), _tunnel(name="b")])
         labels = re.findall(r'resource "vcd_nsxt_nat_rule" "(\w+)"', hcl)
         assert len(labels) == len(set(labels))
+
+
+# -----------------------------------------------------------------------
+#  Fields the customization block cannot omit
+# -----------------------------------------------------------------------
+
+
+class TestSecurityProfileCompleteness:
+    """VCD rejected every tunnel on the first real apply:
+
+        dpdConfiguration.probeInterval: must be >= 3
+        ikeConfiguration.saLifeTime:    must be >= 21600
+        tunnelConfiguration.saLifeTime: must be >= 900
+
+    Specifying security_profile_customization sends the whole block, and
+    anything left out arrives as 0 rather than picking up a default. So
+    every field it validates has to be written.
+    """
+
+    def test_ike_sa_lifetime_present_and_valid(self):
+        hcl = _render([_tunnel()])
+        match = re.search(r"ike_sa_lifetime\s*=\s*(\d+)", hcl)
+        assert match, "ike_sa_lifetime missing"
+        assert int(match.group(1)) >= 21600
+
+    def test_tunnel_sa_lifetime_present_and_valid(self):
+        hcl = _render([_tunnel()])
+        match = re.search(r"tunnel_sa_lifetime\s*=\s*(\d+)", hcl)
+        assert match, "tunnel_sa_lifetime missing"
+        assert int(match.group(1)) >= 900
+
+    def test_dpd_probe_interval_present_and_in_range(self):
+        """Note the provider spells it dpd_probe_internal."""
+        hcl = _render([_tunnel()])
+        match = re.search(r"dpd_probe_internal\s*=\s*(\d+)", hcl)
+        assert match, "dpd_probe_internal missing"
+        assert 3 <= int(match.group(1)) <= 60
+
+    def test_every_tunnel_gets_them(self):
+        hcl = _render([_tunnel(name="a"), _tunnel(name="b")])
+        for field in ("ike_sa_lifetime", "tunnel_sa_lifetime", "dpd_probe_internal"):
+            assert len(re.findall(rf"{field}\s*=", hcl)) == 2

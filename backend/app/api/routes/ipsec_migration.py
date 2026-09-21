@@ -42,7 +42,10 @@ from app.database import get_db
 from app.integrations.vcd_client import PRIMARY, SECONDARY
 from app.migration.fetcher import LegacyVcdFetcher
 from app.migration.generator import (
+    _DPD_PROBE_INTERVAL,
+    _IKE_SA_LIFETIME,
     _NO_SNAT_PRIORITY,
+    _TUNNEL_SA_LIFETIME,
     MigrationHCLGenerator,
     _ipsec_no_snat_rules,
     _prepare_ipsec,
@@ -238,6 +241,9 @@ def _render_ipsec_hcl(
         # the rules follow the addresses the tunnels actually use.
         "ipsec_no_snat": _ipsec_no_snat_rules(renderable),
         "no_snat_priority": _NO_SNAT_PRIORITY,
+        "ike_sa_lifetime": _IKE_SA_LIFETIME,
+        "tunnel_sa_lifetime": _TUNNEL_SA_LIFETIME,
+        "dpd_probe_interval": _DPD_PROBE_INTERVAL,
         "target_org_name": target_org,
         "target_vdc_name": target_vdc,
         "target_vdc_id": target_vdc_id,

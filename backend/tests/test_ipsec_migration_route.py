@@ -119,3 +119,17 @@ class TestRouteRendersNoSnat:
         hcl = self._render([_tunnel(local_ip="176.98.235.65")])
         assert "176.98.235.65" in hcl
         assert 'resource "vcd_nsxt_nat_rule"' in hcl
+
+    def test_security_profile_fields_are_complete(self):
+        """The tab's own context missed NO_SNAT once. These fields are what
+        VCD rejects the tunnel over, so they are checked on this path too."""
+        import re
+        hcl = self._render([_tunnel()])
+        for field, floor in (
+            ("ike_sa_lifetime", 21600),
+            ("tunnel_sa_lifetime", 900),
+            ("dpd_probe_internal", 3),
+        ):
+            match = re.search(rf"{field}\s*=\s*(\d+)", hcl)
+            assert match, f"{field} missing from the tab's render"
+            assert int(match.group(1)) >= floor

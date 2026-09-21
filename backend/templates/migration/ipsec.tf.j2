@@ -52,22 +52,26 @@ resource "vcd_nsxt_ipsec_vpn_tunnel" "{{ t.slug }}" {
 
   pre_shared_key = var.psk_{{ t.slug }}
 
-  # Algorithms are stated rather than left to NSX-T's defaults, which
-  # differ from NSX-V's. SA lifetimes and tunnel_df_policy are NOT set:
-  # the NSX-V site config does not carry them per site, so there is
-  # nothing to copy and the provider's defaults apply. A lifetime
-  # mismatch rekeys on the shorter side rather than failing, but check
-  # it against the peer if a tunnel drops on a schedule.
+  # Algorithms come from the source. The lifetimes and DPD interval do
+  # not: NSX-V does not expose them per site. They are written anyway
+  # because this block is sent whole — a field left out arrives as 0 and
+  # VCD rejects the tunnel. The values are NSX-T's own defaults, so the
+  # result matches what the VCD UI would have made.
   security_profile_customization {
     ike_version                  = "{{ t.ike_version }}"
     ike_encryption_algorithms    = ["{{ t.encryption }}"]
     ike_digest_algorithms        = ["{{ t.digest }}"]
     ike_dh_groups                = ["{{ t.dh_group }}"]
+    ike_sa_lifetime              = {{ ike_sa_lifetime }}
 
     tunnel_pfs_enabled           = {{ t.pfs | lower }}
     tunnel_encryption_algorithms = ["{{ t.encryption }}"]
     tunnel_digest_algorithms     = ["{{ t.digest }}"]
     tunnel_dh_groups             = ["{{ t.dh_group }}"]
+    tunnel_sa_lifetime           = {{ tunnel_sa_lifetime }}
+
+    # Spelled "internal" by the provider, not "interval".
+    dpd_probe_internal           = {{ dpd_probe_interval }}
   }
 }
 
