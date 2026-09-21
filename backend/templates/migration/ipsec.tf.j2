@@ -1,0 +1,70 @@
+{% if ipsec_tunnels or ipsec_skipped %}
+# ---------------------------------------------------------------------------
+#  IPsec VPN tunnels
+#
+#  Every tunnel is created disabled. A VPN tunnel is a live session with a
+#  third party, not an idempotent rule: bringing one up while the source
+#  edge still holds it makes both ends negotiate with the same peer from
+#  different addresses. Enable them one at a time during cutover and watch
+#  the SA come up.
+#
+#  Pre-shared keys arrive through TF_VAR_psk_* and are never written here.
+# ---------------------------------------------------------------------------
+{% endif %}
+{% for t in ipsec_skipped %}
+# SKIPPED: {{ t.name | hcl_escape }}
+{% for reason in t.unsupported %}
+#   - {{ reason | hcl_escape }}
+{% endfor %}
+#   This tunnel needs a decision before it can move. Nothing is generated
+#   for it, so applying this file leaves it behind on the source edge.
+{% endfor %}
+
+{% for t in ipsec_tunnels %}
+variable "psk_{{ t.slug }}" {
+  type        = string
+  sensitive   = true
+  description = "Pre-shared key for tunnel {{ t.name | hcl_escape }}"
+}
+
+resource "vcd_nsxt_ipsec_vpn_tunnel" "{{ t.slug }}" {
+  org             = var.target_org
+  edge_gateway_id = var.target_edge_id
+
+  name        = "{{ t.name | hcl_escape }}"
+{% if t.description %}
+  description = "{{ t.description | hcl_escape }}"
+{% endif %}
+
+  # Switched on per tunnel during cutover, never by this file.
+  enabled = false
+
+  local_ip_address = "{{ t.local_ip | hcl_escape }}"
+  local_networks   = [{{ t.local_networks | map('tojson') | join(', ') }}]
+
+  remote_ip_address = "{{ t.peer_ip | hcl_escape }}"
+  remote_networks   = [{{ t.remote_networks | map('tojson') | join(', ') }}]
+{% if t.remote_id %}
+  # The peer sits behind NAT and announces this identity rather than its
+  # public address. Without it phase 1 fails and the log blames auth.
+  remote_id = "{{ t.remote_id | hcl_escape }}"
+{% endif %}
+
+  pre_shared_key = var.psk_{{ t.slug }}
+
+  # Stated in full rather than relying on defaults: NSX-T's differ from
+  # NSX-V's, and a mismatch shows up as a tunnel that never establishes.
+  security_profile_customization {
+    ike_version                  = "{{ t.ike_version }}"
+    ike_encryption_algorithms    = ["{{ t.encryption }}"]
+    ike_digest_algorithms        = ["{{ t.digest }}"]
+    ike_dh_groups                = ["{{ t.dh_group }}"]
+
+    tunnel_pfs_enabled           = {{ t.pfs | lower }}
+    tunnel_encryption_algorithms = ["{{ t.encryption }}"]
+    tunnel_digest_algorithms     = ["{{ t.digest }}"]
+    tunnel_dh_groups             = ["{{ t.dh_group }}"]
+  }
+}
+
+{% endfor %}

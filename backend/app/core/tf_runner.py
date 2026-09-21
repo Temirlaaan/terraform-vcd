@@ -90,6 +90,7 @@ class TerraformRunner:
         work_dir: Path,
         operation_id: str | None = None,
         cloud: str = "primary",
+        extra_tf_vars: dict[str, str] | None = None,
     ) -> None:
         """
         Args:
@@ -97,10 +98,16 @@ class TerraformRunner:
                 cloud configured via ``VCD_*``) or ``"secondary"`` (``SECONDARY_VCD_*``).
                 Resolved eagerly so a misconfigured second cloud fails here
                 rather than halfway through an apply.
+            extra_tf_vars: additional ``TF_VAR_*`` values, by variable name
+                without the prefix. IPsec pre-shared keys arrive this way:
+                the resource requires them, the project forbids writing them
+                into HCL, so they are passed per run and never persisted by
+                this class.
         """
         self.work_dir = work_dir
         self.operation_id = operation_id
         self.cloud = cloud
+        self._extra_tf_vars = dict(extra_tf_vars or {})
         self._creds = settings.cloud_credentials(cloud)
         self._tf = settings.terraform_binary
 
@@ -149,6 +156,15 @@ class TerraformRunner:
             env["TF_PLUGIN_CACHE_DIR"] = str(cache_dir)
         except OSError as exc:
             logger.warning("plugin cache unavailable at %s: %s", cache_dir, exc)
+
+        # Caller-supplied variables (IPsec pre-shared keys). Applied after
+        # the credentials above so a caller cannot accidentally override them.
+        for name, value in self._extra_tf_vars.items():
+            key = f"TF_VAR_{name}"
+            if key in env:
+                logger.warning("refusing to override %s from extra_tf_vars", key)
+                continue
+            env[key] = value
 
         # Local provider mirror, when the host cannot reach the registry.
         rc_file = _provider_mirror_cli_config()

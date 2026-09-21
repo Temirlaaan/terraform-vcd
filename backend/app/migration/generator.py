@@ -11,7 +11,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from app.core.hcl_generator import _build_jinja_env
+from app.core.hcl_generator import _build_jinja_env, _slug
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,37 @@ _SECTION_TEMPLATES: list[str] = [
     "firewall.tf.j2",
     "nat.tf.j2",
     "static_routes.tf.j2",
+    "ipsec.tf.j2",
 ]
+
+
+def _prepare_ipsec(ipsec: dict) -> tuple[list[dict], list[dict]]:
+    """Split tunnels into renderable and skipped, assigning unique slugs.
+
+    A tunnel the normalizer marked ``migratable: False`` is never rendered
+    with guessed values — it is listed as skipped so the generated file
+    says out loud that something was left behind. Silence there would read
+    as "this edge had no VPN".
+    """
+    renderable: list[dict] = []
+    skipped: list[dict] = []
+    used: set[str] = set()
+
+    for index, tunnel in enumerate(ipsec.get("tunnels", []), start=1):
+        if not tunnel.get("migratable", False):
+            skipped.append(tunnel)
+            continue
+
+        base = _slug(tunnel.get("name") or "") or f"tunnel_{index}"
+        slug = base
+        suffix = 2
+        while slug in used:
+            slug = f"{base}_{suffix}"
+            suffix += 1
+        used.add(slug)
+        renderable.append({**tunnel, "slug": slug})
+
+    return renderable, skipped
 
 
 def _ip_set_hash(ip_addresses: list[str]) -> str:
@@ -303,6 +333,7 @@ class MigrationHCLGenerator:
         routing = normalized.get("routing", {})
 
         edge_meta = normalized.get("edge", {})
+        ipsec_tunnels, ipsec_skipped = _prepare_ipsec(normalized.get("ipsec", {}))
 
         # Collect and deduplicate IP sets from firewall rules
         ip_sets = _collect_ip_sets(firewall.get("rules", []), edge_meta=edge_meta)
@@ -343,6 +374,8 @@ class MigrationHCLGenerator:
             "ip_sets": ip_sets,
             "all_profiles": all_profiles,
             "profile_lookup": profile_lookup,
+            "ipsec_tunnels": ipsec_tunnels,
+            "ipsec_skipped": ipsec_skipped,
         }
 
         blocks: list[str] = []
