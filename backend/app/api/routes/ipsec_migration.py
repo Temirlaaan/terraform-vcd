@@ -41,7 +41,12 @@ from app.core.tf_workspace import TerraformWorkspace
 from app.database import get_db
 from app.integrations.vcd_client import PRIMARY, SECONDARY
 from app.migration.fetcher import LegacyVcdFetcher
-from app.migration.generator import MigrationHCLGenerator, _prepare_ipsec
+from app.migration.generator import (
+    _NO_SNAT_PRIORITY,
+    MigrationHCLGenerator,
+    _ipsec_no_snat_rules,
+    _prepare_ipsec,
+)
 from app.migration.normalizer import normalize_edge_snapshot
 from app.models.operation import Operation, OperationStatus, OperationType
 
@@ -195,7 +200,27 @@ async def _read_and_generate(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # Render only the IPsec section: firewall and NAT have their own tab.
+    hcl = _render_ipsec_hcl(
+        renderable, skipped, body.target_org, body.target_vdc,
+        body.target_vdc_id, body.target_edge_id,
+    )
+    return hcl, renderable, skipped, source_local_ips
+
+
+def _render_ipsec_hcl(
+    renderable: list[dict],
+    skipped: list[dict],
+    target_org: str,
+    target_vdc: str,
+    target_vdc_id: str,
+    target_edge_id: str,
+) -> str:
+    """Render only the IPsec section — firewall and NAT have their own tab.
+
+    Separate from the fetch so it can be tested without a VCD: this render
+    path is the tab's own, not MigrationHCLGenerator.generate(), and the
+    two drifting apart is how the NO_SNAT rules went missing once already.
+    """
     tpl_dir = Path(__file__).resolve().parents[3] / "templates" / "migration"
     jenv = Environment(
         loader=FileSystemLoader(str(tpl_dir)),
@@ -209,17 +234,20 @@ async def _read_and_generate(
     ctx = {
         "ipsec_tunnels": renderable,
         "ipsec_skipped": skipped,
-        "target_org_name": body.target_org,
-        "target_vdc_name": body.target_vdc,
-        "target_vdc_id": body.target_vdc_id,
-        "target_edge_id": body.target_edge_id,
+        # Built here, after the local-address override has been applied, so
+        # the rules follow the addresses the tunnels actually use.
+        "ipsec_no_snat": _ipsec_no_snat_rules(renderable),
+        "no_snat_priority": _NO_SNAT_PRIORITY,
+        "target_org_name": target_org,
+        "target_vdc_name": target_vdc,
+        "target_vdc_id": target_vdc_id,
+        "target_edge_id": target_edge_id,
     }
-    hcl = (
+    return (
         jenv.get_template("variables.tf.j2").render(**ctx)
         + "\n"
         + jenv.get_template("ipsec.tf.j2").render(**ctx)
     )
-    return hcl, renderable, skipped, source_local_ips
 
 
 def _local_ips(tunnels: list[dict]) -> list[str]:

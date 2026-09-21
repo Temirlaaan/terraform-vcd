@@ -78,3 +78,44 @@ class TestWarnings:
 
     def test_no_warning_noise_when_nothing_to_do(self):
         assert _warnings([], []) == []
+
+
+# -----------------------------------------------------------------------
+#  The route renders its own HCL
+# -----------------------------------------------------------------------
+
+
+class TestRouteRendersNoSnat:
+    """The tab does not go through MigrationHCLGenerator.generate(); it
+    builds its own context. NO_SNAT was added to the generator and missed
+    here, and the generator tests could not see it — tunnels were created
+    without the rules that let traffic into them."""
+
+    def _render(self, tunnels, local_ip_map=None):
+        from app.api.routes.ipsec_migration import _render_ipsec_hcl
+        return _render_ipsec_hcl(
+            tunnels, [], "TTC", "vdc", "urn:vcloud:vdc:1", "urn:vcloud:gateway:1",
+        )
+
+    def test_no_snat_rules_are_rendered(self):
+        hcl = self._render([_tunnel(
+            local_networks=["10.0.10.0/24"],
+            remote_networks=["192.168.14.0/23"],
+        )])
+        assert "NO_SNAT" in hcl
+        assert 'resource "vcd_nsxt_nat_rule"' in hcl
+
+    def test_one_per_network_pair(self):
+        import re
+        hcl = self._render([_tunnel(
+            local_networks=["10.0.10.5/32", "10.0.10.11/32"],
+            remote_networks=["10.0.0.0/24"],
+        )])
+        assert len(re.findall(r'resource "vcd_nsxt_nat_rule"', hcl)) == 2
+
+    def test_rules_follow_the_overridden_local_address(self):
+        """The override changes local_ip, not local_networks, so the rules
+        are unaffected by it — but they must still be generated."""
+        hcl = self._render([_tunnel(local_ip="176.98.235.65")])
+        assert "176.98.235.65" in hcl
+        assert 'resource "vcd_nsxt_nat_rule"' in hcl
