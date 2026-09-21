@@ -5,9 +5,11 @@ import { MigrationHclPreview } from "@/components/migration/MigrationHclPreview"
 import { IpsecTunnelTable } from "@/components/migration/IpsecTunnelTable";
 import { useAuthHandle } from "@/api/migrationApi";
 import {
+  useClouds,
   useCloudOrgs,
   useCloudVdcs,
   useCloudEdges,
+  type CloudId,
 } from "@/api/cloudMigrationApi";
 import {
   useIpsecPreview,
@@ -38,15 +40,18 @@ export function IpsecMigrationPage() {
   const [edgeUuid, setEdgeUuid] = useState("");
   const authHandle = useAuthHandle();
 
-  // --- destination (the configured VCD) ---
+  // --- destination: either configured VCD ---
+  const [cloud, setCloud] = useState<CloudId | "">("");
   const [orgId, setOrgId] = useState("");
   const [orgName, setOrgName] = useState("");
   const [vdcId, setVdcId] = useState("");
   const [vdcName, setVdcName] = useState("");
   const [edgeId, setEdgeId] = useState("");
-  const orgs = useCloudOrgs("primary");
-  const vdcs = useCloudVdcs("primary", orgId || undefined);
-  const edges = useCloudEdges("primary", vdcId || undefined);
+  const cloudsQuery = useClouds();
+  const clouds = cloudsQuery.data ?? [];
+  const orgs = useCloudOrgs(cloud);
+  const vdcs = useCloudVdcs(cloud, orgId || undefined);
+  const edges = useCloudEdges(cloud, vdcId || undefined);
 
   const preview = useIpsecPreview();
   const planMutation = useIpsecPlan();
@@ -56,12 +61,13 @@ export function IpsecMigrationPage() {
   const openTerminal = useConfigStore((s) => s.openTerminal);
 
   const result = preview.data;
-  const ready = !!(handle && edgeUuid && orgName && vdcId && edgeId);
+  const ready = !!(handle && edgeUuid && cloud && orgName && vdcId && edgeId);
 
   const body = (): SourceTarget => ({
     handle: handle ?? undefined,
     source_edge_uuid: edgeUuid.trim(),
     verify_ssl: false,
+    target_cloud: cloud as CloudId,
     target_org: orgName,
     target_vdc: vdcName,
     target_vdc_id: vdcId,
@@ -105,7 +111,11 @@ export function IpsecMigrationPage() {
     setOperation(planOpId, "applying");
     openTerminal();
     applyMutation.mutate(
-      { target_org: orgName, plan_operation_id: planOpId },
+      {
+        target_cloud: cloud as CloudId,
+        target_org: orgName,
+        plan_operation_id: planOpId,
+      },
       {
         onSuccess: (d) => {
           setOperation(d.operation_id, "applying");
@@ -208,6 +218,25 @@ export function IpsecMigrationPage() {
         <section className="flex-1 min-w-0 rounded-sm border border-clr-border bg-white p-4 space-y-3">
           <h2 className="text-sm font-semibold text-clr-text">Destination</h2>
           <FormSelect
+            label="Cloud"
+            value={cloud}
+            onChange={(v) => {
+              // Everything below is cloud-specific; keeping a stale org
+              // would submit an id that does not exist on the new one.
+              setCloud(v as CloudId);
+              setOrgId("");
+              setOrgName("");
+              setVdcId("");
+              setVdcName("");
+              setEdgeId("");
+            }}
+            isLoading={cloudsQuery.isLoading}
+            options={clouds.map((c) => ({
+              label: c.configured ? c.label : `${c.label} — not configured`,
+              value: c.configured ? c.id : "",
+            }))}
+          />
+          <FormSelect
             label="Organization"
             value={orgId}
             onChange={(v) => {
@@ -217,6 +246,7 @@ export function IpsecMigrationPage() {
               setEdgeId("");
             }}
             isLoading={orgs.isLoading}
+            disabled={!cloud}
             options={(orgs.data ?? []).map((o) => ({
               label: o.name,
               value: o.id,
@@ -314,7 +344,8 @@ export function IpsecMigrationPage() {
 
           <section className="rounded-sm border border-clr-border bg-white p-4">
             <h2 className="text-sm font-semibold text-clr-text mb-1">
-              Apply to {orgName}
+              Apply to {orgName} on{" "}
+              {clouds.find((c) => c.id === cloud)?.label ?? cloud}
             </h2>
             <p className="text-xs text-clr-text-secondary mb-3">
               Plan re-reads the source so the keys and the variables they fill

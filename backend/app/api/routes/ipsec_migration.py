@@ -38,6 +38,7 @@ from app.core.locking import (
 from app.core.tf_runner import TerraformRunner
 from app.core.tf_workspace import TerraformWorkspace
 from app.database import get_db
+from app.integrations.vcd_client import PRIMARY, SECONDARY
 from app.migration.fetcher import LegacyVcdFetcher
 from app.migration.generator import MigrationHCLGenerator, _prepare_ipsec
 from app.migration.normalizer import normalize_edge_snapshot
@@ -63,6 +64,11 @@ class SourceTarget(BaseModel):
     source_edge_uuid: str = Field(..., min_length=1)
     verify_ssl: bool = False
 
+    target_cloud: str = Field(
+        PRIMARY,
+        pattern=f"^({PRIMARY}|{SECONDARY})$",
+        description="Which VCD to deploy into. Tunnels can land on either.",
+    )
     target_org: str = Field(..., min_length=1)
     target_vdc: str = Field(..., min_length=1)
     target_vdc_id: str = Field(..., min_length=1)
@@ -108,6 +114,7 @@ class PreviewOut(BaseModel):
 
 
 class ApplyIn(BaseModel):
+    target_cloud: str = Field(PRIMARY, pattern=f"^({PRIMARY}|{SECONDARY})$")
     target_org: str = Field(..., min_length=1)
     plan_operation_id: uuid.UUID
 
@@ -275,12 +282,18 @@ async def plan(
     guarantees the keys and the variable names they fill come from the
     same fetch.
     """
+    try:
+        settings.cloud_credentials(body.target_cloud)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     operation_id = uuid.uuid4()
-    lock_name = f"ipsec-{body.target_org}"
+    lock_name = _lock_scope(body.target_cloud, body.target_org)
 
     logger.info(
-        "user=%s action=ipsec_plan src_edge=%s dst_edge=%s operation_id=%s",
-        user.username, body.source_edge_uuid, body.target_edge_id, operation_id,
+        "user=%s action=ipsec_plan src_edge=%s dst_cloud=%s dst_edge=%s operation_id=%s",
+        user.username, body.source_edge_uuid, body.target_cloud,
+        body.target_edge_id, operation_id,
     )
 
     hcl, renderable, _ = await _read_and_generate(body)
@@ -310,7 +323,8 @@ async def plan(
 
     try:
         workspace = _write_workspace(
-            lock_name, operation_id, body.target_edge_id, hcl, user.username
+            lock_name, body.target_cloud, operation_id,
+            body.target_edge_id, hcl, user.username,
         )
     except Exception as exc:
         logger.exception("ipsec workspace failed for %s", operation_id)
@@ -318,7 +332,9 @@ async def plan(
         raise HTTPException(status_code=500, detail=f"Could not create workspace: {exc}")
 
     psk_vars = psk_vars_from_tunnels(renderable)
-    asyncio.create_task(_run_plan(operation_id, lock_name, workspace, psk_vars))
+    asyncio.create_task(
+        _run_plan(operation_id, lock_name, workspace, psk_vars, body.target_cloud)
+    )
     return OperationStarted(operation_id=operation_id)
 
 
@@ -333,7 +349,7 @@ async def apply(
     No keys are needed here: plan.bin already carries the resolved values,
     so nothing has to be read from the source again.
     """
-    lock_name = f"ipsec-{body.target_org}"
+    lock_name = _lock_scope(body.target_cloud, body.target_org)
     workspace = TerraformWorkspace(lock_name, body.plan_operation_id)
     if not (workspace.work_dir / "plan.bin").exists():
         raise HTTPException(
@@ -367,7 +383,9 @@ async def apply(
     ))
     await db.commit()
 
-    asyncio.create_task(_run_apply(operation_id, lock_name, workspace))
+    asyncio.create_task(
+        _run_apply(operation_id, lock_name, workspace, body.target_cloud)
+    )
     return OperationStarted(operation_id=operation_id)
 
 
@@ -375,18 +393,30 @@ async def apply(
 #  Terraform plumbing
 # ---------------------------------------------------------------------------
 
-def _state_key(edge_id: str) -> str:
+def _lock_scope(cloud: str, org: str) -> str:
+    """Lock and workspace name.
+
+    The cloud belongs in the key: the same org name exists on both VCDs,
+    so keying by name alone would block unrelated work and, worse, hand
+    two runs against different clouds the same directory.
+    """
+    return f"ipsec-{cloud}-{org}"
+
+
+def _state_key(cloud: str, edge_id: str) -> str:
     edge_slug = edge_id.rsplit(":", 1)[-1] or "edge"
-    return f"ipsec-migration/{edge_slug}/terraform.tfstate"
+    return f"ipsec-migration/{cloud}/{edge_slug}/terraform.tfstate"
 
 
 def _write_workspace(
     lock_name: str,
+    cloud: str,
     operation_id: uuid.UUID,
     edge_id: str,
     hcl: str,
     username: str,
 ) -> TerraformWorkspace:
+    creds = settings.cloud_credentials(cloud)
     workspace = TerraformWorkspace(lock_name, operation_id)
     workspace.work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -404,7 +434,10 @@ def _write_workspace(
         lstrip_blocks=True,
     )
     (workspace.work_dir / "provider.tf").write_text(
-        jenv.get_template("provider.tf.j2").render(state_key=_state_key(edge_id)),
+        jenv.get_template("provider.tf.j2").render(
+            state_key=_state_key(cloud, edge_id),
+            sysorg=creds["org"] or "System",
+        ),
         encoding="utf-8",
     )
     return workspace
@@ -444,10 +477,12 @@ async def _run_plan(
     lock: str,
     workspace: TerraformWorkspace,
     psk_vars: dict[str, str],
+    cloud: str,
 ) -> None:
     runner = TerraformRunner(
         workspace.work_dir,
         operation_id=str(operation_id),
+        cloud=cloud,
         extra_tf_vars=psk_vars,
     )
     init = await runner.init()
@@ -458,7 +493,9 @@ async def _run_plan(
 
 
 async def _run_apply(
-    operation_id: uuid.UUID, lock: str, workspace: TerraformWorkspace
+    operation_id: uuid.UUID, lock: str, workspace: TerraformWorkspace, cloud: str
 ) -> None:
-    runner = TerraformRunner(workspace.work_dir, operation_id=str(operation_id))
+    runner = TerraformRunner(
+        workspace.work_dir, operation_id=str(operation_id), cloud=cloud
+    )
     await _finish(operation_id, lock, await runner.apply())

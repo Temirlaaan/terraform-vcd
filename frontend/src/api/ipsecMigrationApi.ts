@@ -1,5 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import api from "./client";
+import type { CloudId } from "./cloudMigrationApi";
 
 /* ------------------------------------------------------------------ */
 /*  IPsec tunnel migration: legacy NSX-V edge → NSX-T edge             */
@@ -15,6 +16,8 @@ export interface SourceTarget {
   source_edge_uuid: string;
   verify_ssl?: boolean;
 
+  /** Tunnels can land on either configured VCD, not only the primary. */
+  target_cloud: CloudId;
   target_org: string;
   target_vdc: string;
   target_vdc_id: string;
@@ -83,6 +86,7 @@ export function useIpsecPlan() {
 export function useIpsecApply() {
   return useMutation({
     mutationFn: async (body: {
+      target_cloud: CloudId;
       target_org: string;
       plan_operation_id: string;
     }) => {
