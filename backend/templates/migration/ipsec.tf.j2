@@ -52,8 +52,12 @@ resource "vcd_nsxt_ipsec_vpn_tunnel" "{{ t.slug }}" {
 
   pre_shared_key = var.psk_{{ t.slug }}
 
-  # Stated in full rather than relying on defaults: NSX-T's differ from
-  # NSX-V's, and a mismatch shows up as a tunnel that never establishes.
+  # Algorithms are stated rather than left to NSX-T's defaults, which
+  # differ from NSX-V's. SA lifetimes and tunnel_df_policy are NOT set:
+  # the NSX-V site config does not carry them per site, so there is
+  # nothing to copy and the provider's defaults apply. A lifetime
+  # mismatch rekeys on the shorter side rather than failing, but check
+  # it against the peer if a tunnel drops on a schedule.
   security_profile_customization {
     ike_version                  = "{{ t.ike_version }}"
     ike_encryption_algorithms    = ["{{ t.encryption }}"]
