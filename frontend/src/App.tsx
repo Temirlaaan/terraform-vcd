@@ -12,6 +12,7 @@ import { DeploymentEditorPage } from "@/pages/DeploymentEditorPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { MigrationPage } from "@/pages/MigrationPage";
 import { CloudMigrationPage } from "@/pages/CloudMigrationPage";
+import { IpsecMigrationPage } from "@/pages/IpsecMigrationPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { UnauthorizedPage } from "@/pages/UnauthorizedPage";
 
@@ -56,6 +57,14 @@ export default function App() {
                 element={
                   <RequireRole roles={WRITE_ROLES}>
                     <MigrationPage />
+                  </RequireRole>
+                }
+              />
+              <Route
+                path="ipsec-migration"
+                element={
+                  <RequireRole roles={WRITE_ROLES}>
+                    <IpsecMigrationPage />
                   </RequireRole>
                 }
               />

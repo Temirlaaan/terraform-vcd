@@ -9,6 +9,7 @@ from sqlalchemy import text
 from app.api.routes.cloud_migration import router as cloud_migration_router
 from app.api.routes.deployments import router as deployments_router
 from app.api.routes.imports import router as imports_router
+from app.api.routes.ipsec_migration import router as ipsec_migration_router
 from app.api.routes.drift import router as drift_router
 from app.api.routes.rollback import router as rollback_router
 from app.api.routes.deployment_hcl import router as deployment_hcl_router
@@ -93,6 +94,7 @@ app.include_router(terraform_router, prefix="/api/v1")
 app.include_router(metadata_router, prefix="/api/v1")
 app.include_router(migration_router, prefix="/api/v1")
 app.include_router(cloud_migration_router, prefix="/api/v1")
+app.include_router(ipsec_migration_router, prefix="/api/v1")
 app.include_router(imports_router, prefix="/api/v1")
 app.include_router(deployments_router, prefix="/api/v1")
 app.include_router(versions_router, prefix="/api/v1")

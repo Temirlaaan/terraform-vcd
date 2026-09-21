@@ -7,6 +7,7 @@ import {
   ArrowLeftRight,
   FolderOpen,
   Settings,
+  ShieldCheck,
 } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { cn } from "@/utils/cn";
@@ -116,6 +117,12 @@ const ALL_NAV_ITEMS: NavItem[] = [
     to: "/migration",
     icon: ArrowLeftRight,
     label: "Migration",
+    requireRoles: ["tf-admin", "tf-operator"],
+  },
+  {
+    to: "/ipsec-migration",
+    icon: ShieldCheck,
+    label: "IPsec Tunnels",
     requireRoles: ["tf-admin", "tf-operator"],
   },
   {
