@@ -72,3 +72,37 @@ resource "vcd_nsxt_ipsec_vpn_tunnel" "{{ t.slug }}" {
 }
 
 {% endfor %}
+
+{% if ipsec_no_snat %}
+# ---------------------------------------------------------------------------
+#  NO_SNAT for VPN traffic
+#
+#  NSX-V ran NAT after the IPsec policy matched, so nothing had to be said.
+#  NSX-T evaluates NAT for this traffic too: without these the packets leave
+#  through the general internet SNAT rule with a translated source and never
+#  enter the tunnel. The tunnel comes up, nothing passes, and it reads as a
+#  routing fault rather than a NAT one.
+#
+#  Enabled on purpose. While a tunnel is disabled nothing routes to its
+#  remote networks, so these rules match nothing; they have to be in place
+#  the moment it is switched on.
+# ---------------------------------------------------------------------------
+{% for r in ipsec_no_snat %}
+resource "vcd_nsxt_nat_rule" "{{ r.slug }}" {
+  org             = var.target_org
+  edge_gateway_id = var.target_edge_id
+
+  name                     = "{{ r.name | hcl_escape }}"
+  rule_type                = "NO_SNAT"
+  internal_address         = "{{ r.internal_address | hcl_escape }}"
+  snat_destination_address = "{{ r.destination_address | hcl_escape }}"
+
+  # Lower wins. A general internet SNAT usually sits at the default, and a
+  # NO_SNAT sharing that priority would never be reached.
+  priority = {{ no_snat_priority }}
+  enabled  = true
+  logging  = false
+}
+
+{% endfor %}
+{% endif %}

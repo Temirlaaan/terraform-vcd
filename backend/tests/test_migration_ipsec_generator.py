@@ -58,6 +58,14 @@ def _render(tunnels):
     return MigrationHCLGenerator().generate(_normalized(tunnels), **TARGET)
 
 
+def _tunnel_block(hcl: str) -> str:
+    """Just the ipsec tunnel resource, without the NAT rules beside it."""
+    match = re.search(
+        r'resource "vcd_nsxt_ipsec_vpn_tunnel".*?\n\}', hcl, re.DOTALL
+    )
+    return match.group(0) if match else ""
+
+
 # -----------------------------------------------------------------------
 #  Secrets
 # -----------------------------------------------------------------------
@@ -99,14 +107,15 @@ class TestPskNeverInHcl:
 
 class TestAlwaysDisabled:
     def test_enabled_tunnel_is_rendered_disabled(self):
-        hcl = _render([_tunnel(enabled=True)])
-        # \b so this does not match the tail of tunnel_pfs_enabled
-        assert re.search(r"\benabled\s*=\s*false", hcl)
-        assert not re.search(r"(?<![\w_])enabled\s*=\s*true", hcl)
+        # Scoped to the tunnel block: the NO_SNAT companions alongside it
+        # are enabled on purpose.
+        block = _tunnel_block(_render([_tunnel(enabled=True)]))
+        assert re.search(r"\benabled\s*=\s*false", block)
+        assert not re.search(r"(?<![\w_])enabled\s*=\s*true", block)
 
     def test_disabled_tunnel_is_also_rendered_disabled(self):
-        hcl = _render([_tunnel(enabled=False)])
-        assert re.search(r"\benabled\s*=\s*false", hcl)
+        block = _tunnel_block(_render([_tunnel(enabled=False)]))
+        assert re.search(r"\benabled\s*=\s*false", block)
 
 
 # -----------------------------------------------------------------------
@@ -213,3 +222,74 @@ class TestUnsupportedTunnels:
         hcl = _render([])
         assert "vcd_nsxt_ipsec_vpn_tunnel" not in hcl
         assert not re.search(r'variable\s+"psk_', hcl)
+
+
+# -----------------------------------------------------------------------
+#  NO_SNAT companions
+# -----------------------------------------------------------------------
+
+
+class TestNoSnat:
+    """Without these, VPN traffic leaves through the general internet SNAT
+    rule and never enters the tunnel. NSX-V did not need them stated; NSX-T
+    evaluates NAT for this traffic and does."""
+
+    def test_one_rule_per_network_pair(self):
+        hcl = _render([_tunnel(
+            local_networks=["10.0.10.0/24"],
+            remote_networks=["192.168.14.0/23"],
+        )])
+        rules = re.findall(r'resource "vcd_nsxt_nat_rule" "(\w+)"', hcl)
+        assert len(rules) == 1
+
+    def test_cross_product_of_networks(self):
+        """Each NAT rule carries one internal and one destination CIDR, so a
+        tunnel with two local and two remote networks needs four."""
+        hcl = _render([_tunnel(
+            local_networks=["10.0.10.5/32", "10.0.10.11/32"],
+            remote_networks=["10.8.29.11/32", "10.130.0.120/29"],
+        )])
+        assert len(re.findall(r'resource "vcd_nsxt_nat_rule"', hcl)) == 4
+
+    def test_rule_shape(self):
+        hcl = _render([_tunnel(
+            local_networks=["10.0.10.0/24"],
+            remote_networks=["192.168.14.0/23"],
+        )])
+        block = re.search(
+            r'resource "vcd_nsxt_nat_rule".*?\n\}', hcl, re.DOTALL
+        ).group(0)
+        assert 'rule_type                = "NO_SNAT"' in block or "NO_SNAT" in block
+        assert '"10.0.10.0/24"' in block
+        assert '"192.168.14.0/23"' in block
+
+    def test_rules_are_enabled(self):
+        """Harmless while the tunnel is down — nothing routes to the remote
+        networks — and required the moment it comes up."""
+        hcl = _render([_tunnel()])
+        block = re.search(
+            r'resource "vcd_nsxt_nat_rule".*?\n\}', hcl, re.DOTALL
+        ).group(0)
+        assert re.search(r"\benabled\s*=\s*true", block)
+
+    def test_priority_beats_a_general_snat(self):
+        """Lower number wins in NSX-T. A default-priority NO_SNAT would lose
+        to an existing internet SNAT rule and do nothing."""
+        hcl = _render([_tunnel()])
+        match = re.search(r"priority\s*=\s*(\d+)", hcl)
+        assert match, "no priority set"
+        assert int(match.group(1)) < 100
+
+    def test_no_rules_for_skipped_tunnels(self):
+        hcl = _render([_tunnel(migratable=False, unsupported=["nope"])])
+        assert "vcd_nsxt_nat_rule" not in hcl
+
+    def test_resource_names_are_valid_identifiers(self):
+        hcl = _render([_tunnel(name="172.158.1.0 to inet")])
+        for label in re.findall(r'resource "vcd_nsxt_nat_rule" "([^"]+)"', hcl):
+            assert re.match(r"^[A-Za-z_][A-Za-z0-9_-]*$", label)
+
+    def test_unique_names_across_tunnels(self):
+        hcl = _render([_tunnel(name="a"), _tunnel(name="b")])
+        labels = re.findall(r'resource "vcd_nsxt_nat_rule" "(\w+)"', hcl)
+        assert len(labels) == len(set(labels))

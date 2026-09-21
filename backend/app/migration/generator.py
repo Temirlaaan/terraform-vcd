@@ -28,6 +28,46 @@ _SECTION_TEMPLATES: list[str] = [
 ]
 
 
+# Lower wins in NSX-T. A general internet SNAT rule usually sits at the
+# default, so a NO_SNAT that shares it would never be reached.
+_NO_SNAT_PRIORITY = 10
+
+
+def _ipsec_no_snat_rules(tunnels: list[dict]) -> list[dict]:
+    """NO_SNAT rules so VPN traffic is not translated on its way out.
+
+    NSX-V did not need these stated — its NAT ran after the IPsec policy
+    matched. NSX-T evaluates NAT for the same traffic, so without them the
+    packets leave through the general internet SNAT rule with a translated
+    source and never enter the tunnel. The tunnel comes up and nothing
+    passes, which reads as a routing fault rather than a NAT one.
+
+    One rule per (local, remote) pair: a NAT rule carries a single internal
+    address and a single destination.
+    """
+    rules: list[dict] = []
+    used: set[str] = set()
+
+    for tunnel in tunnels:
+        for local in tunnel.get("local_networks", []):
+            for remote in tunnel.get("remote_networks", []):
+                base = f"no_snat_{tunnel['slug']}_{_slug(local)}_{_slug(remote)}"
+                slug = base
+                suffix = 2
+                while slug in used:
+                    slug = f"{base}_{suffix}"
+                    suffix += 1
+                used.add(slug)
+                rules.append({
+                    "slug": slug,
+                    "name": f"NO_SNAT {tunnel['name']} {local} -> {remote}",
+                    "internal_address": local,
+                    "destination_address": remote,
+                    "tunnel_name": tunnel["name"],
+                })
+    return rules
+
+
 def _prepare_ipsec(ipsec: dict) -> tuple[list[dict], list[dict]]:
     """Split tunnels into renderable and skipped, assigning unique slugs.
 
@@ -334,6 +374,7 @@ class MigrationHCLGenerator:
 
         edge_meta = normalized.get("edge", {})
         ipsec_tunnels, ipsec_skipped = _prepare_ipsec(normalized.get("ipsec", {}))
+        ipsec_no_snat = _ipsec_no_snat_rules(ipsec_tunnels)
 
         # Collect and deduplicate IP sets from firewall rules
         ip_sets = _collect_ip_sets(firewall.get("rules", []), edge_meta=edge_meta)
@@ -376,6 +417,8 @@ class MigrationHCLGenerator:
             "profile_lookup": profile_lookup,
             "ipsec_tunnels": ipsec_tunnels,
             "ipsec_skipped": ipsec_skipped,
+            "ipsec_no_snat": ipsec_no_snat,
+            "no_snat_priority": _NO_SNAT_PRIORITY,
         }
 
         blocks: list[str] = []
