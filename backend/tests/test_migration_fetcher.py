@@ -280,7 +280,7 @@ class TestLegacyVcdFetcherGetXml:
 
 
 class TestLegacyVcdFetcherFetchEdgeSnapshot:
-    async def test_returns_four_xml_keys(self, fetcher):
+    async def test_returns_all_xml_keys(self, fetcher):
         fetcher._bearer_token = "tok"
         fetcher._token_expires_at = 9999999999
 
@@ -295,7 +295,47 @@ class TestLegacyVcdFetcherFetchEdgeSnapshot:
             "firewall_config.xml",
             "nat_config.xml",
             "routing_config.xml",
+            "ipsec_config.xml",
         }
+
+    async def test_ipsec_requests_sensitive_data(self, fetcher):
+        """Without showSensitiveData the API returns masked keys, and a
+        tunnel cannot be recreated from a masked PSK."""
+        fetcher._bearer_token = "tok"
+        fetcher._token_expires_at = 9999999999
+
+        mock_client = _make_async_client()
+        mock_client.get = AsyncMock(return_value=_make_response(text="<xml/>"))
+
+        with patch("app.migration.fetcher.httpx.AsyncClient", return_value=mock_client):
+            await fetcher.fetch_edge_snapshot("edge-uuid-123")
+
+        urls = [c.args[0] for c in mock_client.get.call_args_list]
+        ipsec_urls = [u for u in urls if "/ipsec/config" in u]
+        assert len(ipsec_urls) == 1
+        assert "showSensitiveData=true" in ipsec_urls[0]
+
+    async def test_ipsec_failure_does_not_abort_the_snapshot(self, fetcher):
+        """An edge with no IPsec service still has firewall and NAT worth
+        migrating, so the document is optional."""
+        fetcher._bearer_token = "tok"
+        fetcher._token_expires_at = 9999999999
+
+        async def _get(url, headers=None):
+            if "/ipsec/config" in url:
+                raise httpx.HTTPStatusError(
+                    "404", request=MagicMock(), response=_make_response(status=404)
+                )
+            return _make_response(text="<xml/>")
+
+        mock_client = _make_async_client()
+        mock_client.get = AsyncMock(side_effect=_get)
+
+        with patch("app.migration.fetcher.httpx.AsyncClient", return_value=mock_client):
+            result = await fetcher.fetch_edge_snapshot("edge-uuid-123")
+
+        assert "ipsec_config.xml" not in result
+        assert "firewall_config.xml" in result
 
     async def test_correct_endpoint_paths(self, fetcher):
         fetcher._bearer_token = "tok"

@@ -115,15 +115,24 @@ class LegacyVcdFetcher:
             return resp.text
 
     async def fetch_edge_snapshot(self, edge_uuid: str) -> dict[str, str]:
-        """Fetch all 4 XML documents for the given edge gateway.
+        """Fetch the XML documents describing the given edge gateway.
 
         Args:
             edge_uuid: The UUID of the NSX-V edge gateway
                        (e.g. ``b6b3181a-2596-44c5-9991-c4c54c050bcb``).
+                       The proxy rejects NSX-V style ids such as ``edge-237``.
 
         Returns:
             Dict with keys ``edge_metadata.xml``, ``firewall_config.xml``,
-            ``nat_config.xml``, ``routing_config.xml`` — all raw XML strings.
+            ``nat_config.xml``, ``routing_config.xml`` and, when the edge has
+            an IPsec service, ``ipsec_config.xml`` — all raw XML strings.
+
+            IPsec is fetched with ``showSensitiveData=true`` so pre-shared
+            keys come back in the clear; without it the API returns them
+            masked and the tunnels cannot be recreated. A failure there is
+            logged and skipped rather than raised: the rest of the edge is
+            still worth migrating, and the normalizer treats the document
+            as optional.
         """
         await self._ensure_authenticated()
 
@@ -142,11 +151,22 @@ class LegacyVcdFetcher:
             f"/network/edges/{edge_uuid}/routing/config"
         )
 
-        logger.info("Edge snapshot fetched successfully for %s", edge_uuid)
-
-        return {
+        snapshot = {
             "edge_metadata.xml": edge_metadata,
             "firewall_config.xml": firewall_config,
             "nat_config.xml": nat_config,
             "routing_config.xml": routing_config,
         }
+
+        try:
+            snapshot["ipsec_config.xml"] = await self._get_xml(
+                f"/network/edges/{edge_uuid}/ipsec/config?showSensitiveData=true"
+            )
+        except Exception as exc:
+            logger.warning(
+                "IPsec config unavailable for %s (%s) — continuing without it",
+                edge_uuid, exc,
+            )
+
+        logger.info("Edge snapshot fetched successfully for %s", edge_uuid)
+        return snapshot

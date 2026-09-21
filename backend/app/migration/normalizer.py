@@ -339,6 +339,155 @@ def _normalize_edge_metadata(xml_str: str) -> dict:
     }
 
 
+
+# ---------------------------------------------------------------------------
+#  IPsec VPN
+# ---------------------------------------------------------------------------
+
+# NSX-V value -> NSX-T value, built from every value present across all
+# tunnels on the legacy VCD rather than from a sample. Anything absent has
+# no NSX-T equivalent: the tunnel is reported as not migratable instead of
+# being given a plausible default, because a wrong algorithm produces a
+# tunnel that silently never establishes.
+NSXV_TO_NSXT: dict[str, dict[str, str]] = {
+    "encryptionAlgorithm": {
+        "aes": "AES_128",
+        "aes256": "AES_256",
+        "aes-gcm": "AES_GCM_128",
+        # 3DES is deliberately absent — NSX-T removed it.
+    },
+    "digestAlgorithm": {
+        "sha1": "SHA1",
+        "sha-256": "SHA2_256",
+        "sha-384": "SHA2_384",
+        "sha-512": "SHA2_512",
+    },
+    "dhGroup": {
+        "dh2": "GROUP2",
+        "dh5": "GROUP5",
+        "dh14": "GROUP14",
+        "dh15": "GROUP15",
+        "dh16": "GROUP16",
+        "dh19": "GROUP19",
+        "dh20": "GROUP20",
+        "dh21": "GROUP21",
+    },
+    "ikeVersion": {
+        "ikev1": "IKE_V1",
+        "ikev2": "IKE_V2",
+        # Hyphenated on the wire; "ikeflex" would not match.
+        "ike-flex": "IKE_FLEX",
+    },
+}
+
+_ANY_PEER = {"any", "0.0.0.0", ""}
+
+
+def _map_value(field: str, raw: str, unsupported: list[str]) -> str | None:
+    """Translate one crypto value, recording a refusal when it has no match."""
+    key = (raw or "").strip().lower()
+    if not key:
+        unsupported.append(f"{field} is empty")
+        return None
+    mapped = NSXV_TO_NSXT[field].get(key)
+    if mapped is None:
+        unsupported.append(f"{field}={key} has no NSX-T equivalent")
+    return mapped
+
+
+def _normalize_ipsec(xml_str: str) -> dict:
+    """Parse NSX-V ipsec/config into canonical tunnels.
+
+    Disabled tunnels are kept: the operator migrates them as-is so the
+    destination mirrors the source, and they are switched on individually
+    during cutover.
+
+    Pre-shared keys travel in this structure but must never reach rendered
+    HCL — the generator binds them to TF_VAR_* variables instead.
+    """
+    root = ET.fromstring(xml_str)
+
+    tunnels: list[dict] = []
+    for index, site in enumerate(root.findall(".//site"), start=1):
+        unsupported: list[str] = []
+
+        name = _text(site, "name") or _text(site, "siteId") or f"tunnel_{index}"
+        local_ip = _text(site, "localIp")
+        peer_ip = _text(site, "peerIp")
+        local_id = _text(site, "localId")
+        peer_id = _text(site, "peerId")
+
+        local_networks = [
+            el.text.strip()
+            for el in site.findall("localSubnets/subnet")
+            if el is not None and el.text
+        ]
+        remote_networks = [
+            el.text.strip()
+            for el in site.findall("peerSubnets/subnet")
+            if el is not None and el.text
+        ]
+
+        if peer_ip.strip().lower() in _ANY_PEER:
+            unsupported.append(
+                "peer address is ANY — NSX-T requires a concrete remote address"
+            )
+        if not remote_networks:
+            unsupported.append(
+                "no remote networks — NSX-T would read this as 0.0.0.0/0"
+            )
+
+        auth = (_text(site, "authenticationMode") or "psk").lower()
+        if "cert" in auth:
+            unsupported.append(
+                "certificate authentication — certificates must be pre-loaded "
+                "on the destination, they cannot be migrated from here"
+            )
+
+        tunnels.append({
+            "name": name,
+            "enabled": _bool(site, "enabled", True),
+            "local_ip": local_ip,
+            "peer_ip": peer_ip,
+            # NSX-T defaults remote_id to the peer address. Only carry an
+            # identity that actually differs — typically a peer behind NAT,
+            # where omitting it makes phase 1 fail as an auth error.
+            "local_id": local_id if local_id and local_id != local_ip else None,
+            "remote_id": peer_id if peer_id and peer_id != peer_ip else None,
+            "local_networks": local_networks,
+            "remote_networks": remote_networks,
+            "encryption": _map_value(
+                "encryptionAlgorithm", _text(site, "encryptionAlgorithm"), unsupported
+            ),
+            "digest": _map_value(
+                "digestAlgorithm", _text(site, "digestAlgorithm"), unsupported
+            ),
+            "dh_group": _map_value("dhGroup", _text(site, "dhGroup"), unsupported),
+            "ike_version": _map_value(
+                "ikeVersion",
+                _text(site, "ikeOption") or _text(site, "ikeVersion"),
+                unsupported,
+            ),
+            "pfs": _bool(site, "enablePfs", True),
+            "psk": _text(site, "psk") or None,
+            "unsupported": unsupported,
+            "migratable": not unsupported,
+        })
+
+    if tunnels:
+        blocked = [t["name"] for t in tunnels if not t["migratable"]]
+        logger.info(
+            "ipsec normalized tunnels=%d not_migratable=%d%s",
+            len(tunnels), len(blocked),
+            f" ({', '.join(blocked)})" if blocked else "",
+        )
+
+    return {
+        "enabled": _bool(root, "enabled", False),
+        "tunnels": tunnels,
+    }
+
+
 def normalize_edge_snapshot(raw_xmls: dict[str, str]) -> dict:
     """Parse raw XML strings into canonical migration JSON.
 
@@ -369,6 +518,13 @@ def normalize_edge_snapshot(raw_xmls: dict[str, str]) -> dict:
     firewall = _normalize_firewall(raw_xmls["firewall_config.xml"])
     nat = _normalize_nat(raw_xmls["nat_config.xml"])
     routing = _normalize_routing(raw_xmls["routing_config.xml"])
+    # Optional: snapshots captured before IPsec support have four documents.
+    ipsec_xml = raw_xmls.get("ipsec_config.xml")
+    ipsec = (
+        _normalize_ipsec(ipsec_xml)
+        if ipsec_xml
+        else {"enabled": False, "tunnels": []}
+    )
 
     return {
         "schema_version": 1,
@@ -381,4 +537,5 @@ def normalize_edge_snapshot(raw_xmls: dict[str, str]) -> dict:
         "firewall": firewall,
         "nat": nat,
         "routing": routing,
+        "ipsec": ipsec,
     }
