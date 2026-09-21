@@ -22,6 +22,11 @@ export interface SourceTarget {
   target_vdc: string;
   target_vdc_id: string;
   target_edge_id: string;
+
+  /** Source local address -> address to use on the destination.
+   *  For validating the pipeline on a free IP; the tunnel will not
+   *  establish, since the peer still expects the original. */
+  local_ip_map?: Record<string, string>;
 }
 
 /** One tunnel as the backend describes it.
@@ -48,6 +53,7 @@ export interface IpsecTunnel {
 
 export interface IpsecPreview {
   hcl: string;
+  source_local_ips: string[];
   tunnels: IpsecTunnel[];
   total: number;
   migratable: number;

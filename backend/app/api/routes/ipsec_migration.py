@@ -29,6 +29,7 @@ from app.auth import AuthenticatedUser, require_roles
 from app.config import settings
 from app.core import vcd_handle
 from app.core.aria_attribution import Attribution, retag_hcl
+from app.core.ip_remap import is_valid_ipv4
 from app.core.ipsec_psk import psk_vars_from_tunnels
 from app.core.locking import (
     acquire_org_lock,
@@ -74,6 +75,16 @@ class SourceTarget(BaseModel):
     target_vdc_id: str = Field(..., min_length=1)
     target_edge_id: str = Field(..., min_length=1)
 
+    local_ip_map: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Source local address -> address to use on the destination. The "
+            "source address is often not allocated there yet; overriding it "
+            "lets the pipeline be validated on a free one. The tunnel will "
+            "not establish, because the peer still expects the original."
+        ),
+    )
+
     @model_validator(mode="after")
     def _check_auth(self) -> "SourceTarget":
         if not self.handle and not self.api_token:
@@ -106,6 +117,9 @@ class TunnelOut(BaseModel):
 
 class PreviewOut(BaseModel):
     hcl: str
+    # Distinct local addresses on the source, so the UI can offer an
+    # override without making anyone read the HCL for them.
+    source_local_ips: list[str]
     tunnels: list[TunnelOut]
     total: int
     migratable: int
@@ -139,10 +153,13 @@ async def _resolve_auth(body: SourceTarget) -> tuple[str, str]:
     return body.host or "", body.api_token or ""
 
 
-async def _read_and_generate(body: SourceTarget) -> tuple[str, list[dict], list[dict]]:
+async def _read_and_generate(
+    body: SourceTarget,
+) -> tuple[str, list[dict], list[dict], list[str]]:
     """Fetch the source edge and render IPsec HCL.
 
-    Returns (hcl, renderable tunnels with slugs and keys, skipped tunnels).
+    Returns (hcl, renderable tunnels with slugs and keys, skipped tunnels,
+    the local addresses as they are on the source).
     Callers that send anything to the browser must strip the keys first.
     """
     host, token = await _resolve_auth(body)
@@ -172,6 +189,11 @@ async def _read_and_generate(body: SourceTarget) -> tuple[str, list[dict], list[
 
     normalized = normalize_edge_snapshot(raw)
     renderable, skipped = _prepare_ipsec(normalized.get("ipsec", {}))
+    source_local_ips = _local_ips(renderable)
+    try:
+        renderable = _apply_local_ip_map(renderable, body.local_ip_map)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     # Render only the IPsec section: firewall and NAT have their own tab.
     tpl_dir = Path(__file__).resolve().parents[3] / "templates" / "migration"
@@ -197,7 +219,44 @@ async def _read_and_generate(body: SourceTarget) -> tuple[str, list[dict], list[
         + "\n"
         + jenv.get_template("ipsec.tf.j2").render(**ctx)
     )
-    return hcl, renderable, skipped
+    return hcl, renderable, skipped, source_local_ips
+
+
+def _local_ips(tunnels: list[dict]) -> list[str]:
+    """Distinct local addresses, in the order they appear."""
+    out: list[str] = []
+    for tunnel in tunnels:
+        ip = (tunnel.get("local_ip") or "").strip()
+        if ip and ip not in out:
+            out.append(ip)
+    return out
+
+
+def _apply_local_ip_map(tunnels: list[dict], mapping: dict[str, str]) -> list[dict]:
+    """Return tunnels with their local address swapped where mapped.
+
+    Raises:
+        ValueError: either side of a pair is not an IPv4 address.
+    """
+    if not mapping:
+        return tunnels
+
+    for old, new in mapping.items():
+        if not is_valid_ipv4(old):
+            raise ValueError(f"{old!r} is not a valid IPv4 address")
+        if not is_valid_ipv4(new):
+            raise ValueError(f"{new!r} is not a valid IPv4 address (mapped from {old})")
+
+    out = []
+    for t in tunnels:
+        current = t.get("local_ip", "")
+        replacement = mapping.get(current, current)
+        out.append({
+            **t,
+            "local_ip": replacement,
+            "_local_ip_overridden": replacement != current,
+        })
+    return out
 
 
 def _to_out(tunnel: dict) -> TunnelOut:
@@ -236,6 +295,13 @@ def _warnings(renderable: list[dict], skipped: list[dict]) -> list[str]:
             + ", ".join(no_key)
             + ". Terraform will refuse to plan without one."
         )
+    overridden = [t for t in renderable if t.get("_local_ip_overridden")]
+    if overridden:
+        out.append(
+            "The local address was overridden, so these tunnels cannot "
+            "establish: the peer still expects the original. Useful for "
+            "validating the pipeline, not for cutover."
+        )
     if renderable:
         out.append(
             f"All {len(renderable)} tunnel(s) are created disabled. Enable them "
@@ -258,9 +324,10 @@ async def preview(
         "user=%s action=ipsec_preview src_edge=%s dst_edge=%s",
         user.username, body.source_edge_uuid, body.target_edge_id,
     )
-    hcl, renderable, skipped = await _read_and_generate(body)
+    hcl, renderable, skipped, source_local_ips = await _read_and_generate(body)
     return PreviewOut(
         hcl=hcl,
+        source_local_ips=source_local_ips,
         tunnels=[_to_out(t) for t in renderable] + [_to_out(t) for t in skipped],
         total=len(renderable) + len(skipped),
         migratable=len(renderable),
@@ -296,7 +363,7 @@ async def plan(
         body.target_edge_id, operation_id,
     )
 
-    hcl, renderable, _ = await _read_and_generate(body)
+    hcl, renderable, _, _ = await _read_and_generate(body)
     if not renderable:
         raise HTTPException(
             status_code=400,

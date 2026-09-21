@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Plug, ShieldCheck, AlertTriangle, Info } from "lucide-react";
 import { FormInput, FormSelect } from "@/components/shared";
 import { Button, Card, PageHeader, Callout, Stats } from "@/components/ui";
+import { isValidIpv4 } from "@/components/migration/AddressRemapTable";
 import { MigrationHclPreview } from "@/components/migration/MigrationHclPreview";
 import { IpsecTunnelTable } from "@/components/migration/IpsecTunnelTable";
 import { useAuthHandle } from "@/api/migrationApi";
@@ -58,11 +59,14 @@ export function IpsecMigrationPage() {
   const planMutation = useIpsecPlan();
   const applyMutation = useIpsecApply();
   const [planOpId, setPlanOpId] = useState<string | null>(null);
+  const [localIpMap, setLocalIpMap] = useState<Record<string, string>>({});
   const setOperation = useConfigStore((s) => s.setOperation);
   const openTerminal = useConfigStore((s) => s.openTerminal);
 
   const result = preview.data;
-  const ready = !!(handle && edgeUuid && cloud && orgName && vdcId && edgeId);
+  const badLocalIp = Object.values(localIpMap).some((v) => !isValidIpv4(v));
+  const ready =
+    !!(handle && edgeUuid && cloud && orgName && vdcId && edgeId) && !badLocalIp;
 
   const body = (): SourceTarget => ({
     handle: handle ?? undefined,
@@ -73,6 +77,7 @@ export function IpsecMigrationPage() {
     target_vdc: vdcName,
     target_vdc_id: vdcId,
     target_edge_id: edgeId,
+    local_ip_map: localIpMap,
   });
 
   const connect = () =>
@@ -308,6 +313,55 @@ export function IpsecMigrationPage() {
               ]}
             />
           </Card>
+
+          {result.source_local_ips.length > 0 && (
+            <Card
+              title="Local address on the destination"
+              description="The tunnel's local address must already be allocated on the destination edge, or the apply fails. Override it to validate the pipeline on a free address — the tunnel will not establish, because the peer still expects the original."
+            >
+              <div className="space-y-2">
+                {result.source_local_ips.map((ip) => {
+                  const value = localIpMap[ip] ?? "";
+                  const invalid = value !== "" && !isValidIpv4(value);
+                  return (
+                    <div key={ip} className="flex items-center gap-3">
+                      <code className="font-mono text-xs text-clr-text w-36">
+                        {ip}
+                      </code>
+                      <span className="text-clr-placeholder">→</span>
+                      <div>
+                        <input
+                          value={value}
+                          onChange={(e) => {
+                            const next = { ...localIpMap };
+                            const v = e.target.value.trim();
+                            if (v) next[ip] = v;
+                            else delete next[ip];
+                            setLocalIpMap(next);
+                            setPlanOpId(null);
+                          }}
+                          placeholder="unchanged"
+                          spellCheck={false}
+                          className={
+                            "w-44 rounded border bg-clr-surface px-2 py-1 font-mono text-xs focus:outline-none focus:border-clr-action " +
+                            (invalid ? "border-clr-danger" : "border-clr-border")
+                          }
+                        />
+                        {invalid && (
+                          <p className="text-[11px] text-clr-danger mt-0.5">
+                            Not a valid IPv4 address
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-3 text-[11px] text-clr-text-secondary">
+                Changing this means re-reading: press Re-read tunnels to apply it.
+              </p>
+            </Card>
+          )}
 
           {result.warnings.length > 0 && (
             <Callout
