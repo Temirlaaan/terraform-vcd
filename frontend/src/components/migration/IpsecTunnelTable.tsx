@@ -23,10 +23,10 @@ export function IpsecTunnelTable({ tunnels }: { tunnels: IpsecTunnel[] }) {
   if (tunnels.length === 0) return null;
 
   return (
-    <section className="rounded-sm border border-clr-border bg-white">
+    <section className="rounded-card border border-clr-border-subtle bg-clr-surface shadow-card overflow-hidden">
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left border-b border-clr-border">
+          <tr className="text-left border-b border-clr-border-subtle bg-clr-surface-sunken">
             {["Tunnel", "Endpoints", "Networks", "Crypto", ""].map((h, i) => (
               <th
                 key={i}
@@ -42,16 +42,16 @@ export function IpsecTunnelTable({ tunnels }: { tunnels: IpsecTunnel[] }) {
             <tr
               key={`${t.name}-${i}`}
               className={cn(
-                "border-b border-clr-border last:border-0 align-top",
-                !t.migratable && "bg-amber-50/60",
+                "border-b border-clr-border-subtle last:border-0 align-top",
+                !t.migratable && "bg-clr-warning-bg/60",
               )}
             >
               <td className="px-4 py-2.5">
                 <div className="flex items-center gap-1.5">
                   {t.migratable ? (
-                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                    <ShieldCheck className="h-3.5 w-3.5 text-clr-success shrink-0" />
                   ) : (
-                    <ShieldOff className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                    <ShieldOff className="h-3.5 w-3.5 text-clr-warning shrink-0" />
                   )}
                   <span className="font-medium text-clr-text">{t.name}</span>
                 </div>
@@ -63,7 +63,7 @@ export function IpsecTunnelTable({ tunnels }: { tunnels: IpsecTunnel[] }) {
                     <span
                       className={cn(
                         "inline-flex items-center gap-0.5",
-                        t.psk_readable ? "text-emerald-700" : "text-clr-danger",
+                        t.psk_readable ? "text-clr-success-text" : "text-clr-danger",
                       )}
                       title={
                         t.psk_readable
@@ -83,7 +83,7 @@ export function IpsecTunnelTable({ tunnels }: { tunnels: IpsecTunnel[] }) {
                 <div>→ {t.peer_ip}</div>
                 {t.remote_id && (
                   <div
-                    className="text-amber-700"
+                    className="text-clr-warning-text"
                     title="The peer is behind NAT and announces this identity. Written explicitly, or phase 1 fails as an auth error."
                   >
                     id: {t.remote_id}
@@ -102,7 +102,7 @@ export function IpsecTunnelTable({ tunnels }: { tunnels: IpsecTunnel[] }) {
 
               <td className="px-4 py-2.5">
                 {!t.migratable && (
-                  <div className="text-[11px] text-amber-900 max-w-xs">
+                  <div className="text-[11px] text-clr-warning-text max-w-xs">
                     <div className="flex items-center gap-1 font-medium">
                       <AlertTriangle className="h-3 w-3" />
                       Stays on the source

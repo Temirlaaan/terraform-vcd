@@ -175,7 +175,9 @@ There is no frontend test runner configured — `npm run build` (`tsc -b && vite
 - React 18 functional components with hooks only
 - Zustand for global state (`useConfigStore`, `useMigrationStore`)
 - TanStack Query for server state (useQuery/useMutation)
-- Tailwind CSS — dark theme (slate-900/950 palette)
+- Tailwind CSS on a **light** Clarity-derived palette (`#0079b8` action, `#314351` header). Not a dark theme — the note that said so was stale
+- Shared primitives live in `components/ui`: `Button`, `Card`, `PageHeader`, `Callout`, `Badge`, `Stats`. Use them instead of re-declaring classes inline
+- Colours come from `clr-*` tokens only. Reaching into the raw Tailwind palette (`amber-50`, `emerald-600`) is how two pages drift apart
 - Path alias `@/` maps to `src/`
 - `cn()` utility (clsx + tailwind-merge) for conditional classes
 - Role checks via `useAuth().roles` and the `RequireRole` wrapper — never rely on hiding UI alone; the backend enforces too

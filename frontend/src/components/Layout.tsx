@@ -1,6 +1,5 @@
 import {
   Cloud,
-  ChevronDown,
   Terminal as TerminalIcon,
   LogOut,
   LayoutGrid,
@@ -33,11 +32,11 @@ function TopBar() {
     .slice(0, 2);
 
   return (
-    <header className="h-14 flex-none flex items-center justify-between gap-4 bg-clr-header border-b border-[#283845] px-4">
+    <header className="h-14 flex-none flex items-center justify-between gap-4 bg-clr-header px-5">
       {/* Left — branding */}
       <div className="flex items-center gap-3">
         <Cloud className="h-5 w-5 text-white" />
-        <span className="text-white font-semibold tracking-tight text-sm">
+        <span className="text-white font-semibold tracking-tight text-[0.9375rem]">
           Terraform VCD Dashboard
         </span>
         <span className="text-[10px] font-medium text-clr-action-light bg-white/10 px-1.5 py-0.5 rounded">
@@ -45,12 +44,11 @@ function TopBar() {
         </span>
       </div>
 
-      {/* Center — environment switcher */}
-      <button className="flex items-center gap-1.5 text-xs text-white/80 bg-white/10 border border-white/20 rounded-md px-3 py-1.5 hover:border-white/40 transition-colors">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-        vcd-prod-01
-        <ChevronDown className="h-3 w-3 text-white/60" />
-      </button>
+      {/* No environment switcher here on purpose. It used to show a
+          hardcoded "vcd-prod-01" with a green dot and no handler, which
+          implied both a live status and a choice that did not exist.
+          There are now two clouds, and which one an action targets is
+          picked on the page that performs it. */}
 
       {/* Right — actions & user */}
       <div className="flex items-center gap-2">

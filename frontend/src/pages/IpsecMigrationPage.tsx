@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Loader2, Plug, ShieldCheck, AlertTriangle, Info } from "lucide-react";
+import { Plug, ShieldCheck, AlertTriangle, Info } from "lucide-react";
 import { FormInput, FormSelect } from "@/components/shared";
+import { Button, Card, PageHeader, Callout, Stats } from "@/components/ui";
 import { MigrationHclPreview } from "@/components/migration/MigrationHclPreview";
 import { IpsecTunnelTable } from "@/components/migration/IpsecTunnelTable";
 import { useAuthHandle } from "@/api/migrationApi";
@@ -129,22 +130,15 @@ export function IpsecMigrationPage() {
 
   return (
     <div className="p-6 max-w-6xl space-y-4">
-      <header>
-        <h1 className="text-lg font-semibold text-clr-text">
-          IPsec tunnel migration
-        </h1>
-        <p className="text-xs text-clr-text-secondary mt-0.5">
-          Copy IPsec VPN tunnels from a legacy NSX-V edge onto an NSX-T edge.
-          Tunnels are always created disabled — enable them one at a time
-          during cutover, once the source side is down.
-        </p>
-      </header>
+      <PageHeader
+        title="IPsec tunnel migration"
+        description="Copy IPsec VPN tunnels from a legacy NSX-V edge onto an NSX-T edge. Tunnels are always created disabled — enable them one at a time during cutover, once the source side is down."
+      />
 
       <div className="flex flex-col lg:flex-row gap-3">
         {/* ---------------- source ---------------- */}
-        <section className="flex-1 min-w-0 rounded-sm border border-clr-border bg-white p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-clr-text">Source</h2>
-
+        <Card title="Source" className="flex-1 min-w-0">
+         <div className="space-y-3">
           {handle ? (
             <div className="flex items-center gap-2 rounded-sm bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-900">
               <ShieldCheck className="h-3.5 w-3.5" />
@@ -181,18 +175,14 @@ export function IpsecMigrationPage() {
                   className="w-full rounded-sm border border-clr-border bg-white px-2.5 py-1.5 text-sm focus:border-clr-action focus:outline-none"
                 />
               </label>
-              <button
+              <Button
                 onClick={connect}
-                disabled={!host.trim() || !token.trim() || authHandle.isPending}
-                className="inline-flex items-center gap-2 rounded-sm border border-clr-border px-3 py-1.5 text-sm disabled:opacity-50"
+                disabled={!host.trim() || !token.trim()}
+                loading={authHandle.isPending}
+                icon={<Plug className="h-3.5 w-3.5" />}
               >
-                {authHandle.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Plug className="h-3.5 w-3.5" />
-                )}
                 Connect
-              </button>
+              </Button>
               {authHandle.isError && (
                 <p className="text-xs text-clr-danger">
                   {detail(authHandle.error, "Could not connect")}
@@ -212,11 +202,12 @@ export function IpsecMigrationPage() {
             A UUID, not an NSX-V id like <code>edge-237</code> — the proxy
             rejects those.
           </p>
-        </section>
+         </div>
+        </Card>
 
         {/* ---------------- destination ---------------- */}
-        <section className="flex-1 min-w-0 rounded-sm border border-clr-border bg-white p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-clr-text">Destination</h2>
+        <Card title="Destination" className="flex-1 min-w-0">
+         <div className="space-y-3">
           <FormSelect
             label="Cloud"
             value={cloud}
@@ -278,22 +269,23 @@ export function IpsecMigrationPage() {
               value: e.id,
             }))}
           />
-        </section>
+         </div>
+        </Card>
       </div>
 
       <div className="flex items-center gap-3">
-        <button
+        <Button
+          variant="primary"
           onClick={runPreview}
-          disabled={!ready || preview.isPending}
-          className="inline-flex items-center gap-2 rounded-sm bg-clr-action px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={!ready}
+          loading={preview.isPending}
         >
-          {preview.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {preview.isPending
             ? "Reading tunnels..."
             : result
               ? "Re-read tunnels"
               : "Read tunnels"}
-        </button>
+        </Button>
         {preview.isError && (
           <span className="text-xs text-clr-danger">
             {detail(preview.error, "Could not read the source edge")}
@@ -303,33 +295,30 @@ export function IpsecMigrationPage() {
 
       {result && (
         <>
-          <section className="rounded-sm border border-clr-border bg-white p-4">
-            <dl className="flex flex-wrap gap-x-6 gap-y-1">
-              {[
-                ["Tunnels found", result.total],
-                ["Will be created", result.migratable],
-                ["Left on source", result.skipped],
-              ].map(([label, n]) => (
-                <div key={label as string} className="flex items-baseline gap-1.5">
-                  <dt className="text-xs text-clr-text-secondary">{label}</dt>
-                  <dd className="text-sm font-medium text-clr-text">{n}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
+          <Card>
+            <Stats
+              items={[
+                { label: "Tunnels found", value: result.total },
+                { label: "Will be created", value: result.migratable, tone: "success" },
+                {
+                  label: "Left on source",
+                  value: result.skipped,
+                  tone: result.skipped > 0 ? "warning" : undefined,
+                },
+              ]}
+            />
+          </Card>
 
           {result.warnings.length > 0 && (
-            <section className="rounded-sm border border-amber-300 bg-amber-50 p-4 space-y-1">
-              <h2 className="flex items-center gap-1.5 text-sm font-semibold text-amber-900">
-                <AlertTriangle className="h-4 w-4" />
-                Before you apply
-              </h2>
+            <Callout
+              tone="warning"
+              title="Before you apply"
+              icon={<AlertTriangle className="h-4 w-4" />}
+            >
               {result.warnings.map((w, i) => (
-                <p key={i} className="text-xs text-amber-900">
-                  • {w}
-                </p>
+                <p key={i}>• {w}</p>
               ))}
-            </section>
+            </Callout>
           )}
 
           <IpsecTunnelTable tunnels={result.tunnels} />
@@ -342,47 +331,39 @@ export function IpsecMigrationPage() {
 
           <MigrationHclPreview hcl={result.hcl} edgeName="ipsec_tunnels" />
 
-          <section className="rounded-sm border border-clr-border bg-white p-4">
-            <h2 className="text-sm font-semibold text-clr-text mb-1">
-              Apply to {orgName} on{" "}
-              {clouds.find((c) => c.id === cloud)?.label ?? cloud}
-            </h2>
-            <p className="text-xs text-clr-text-secondary mb-3">
-              Plan re-reads the source so the keys and the variables they fill
-              come from one fetch. Apply runs exactly that plan.
-            </p>
+          <Card
+            title={`Apply to ${orgName} on ${
+              clouds.find((c) => c.id === cloud)?.label ?? cloud
+            }`}
+            description="Plan re-reads the source so the keys and the variables they fill come from one fetch. Apply runs exactly that plan."
+          >
             <div className="flex items-center gap-2">
-              <button
+              <Button
                 onClick={runPlan}
-                disabled={!ready || planMutation.isPending || result.migratable === 0}
+                disabled={!ready || result.migratable === 0}
+                loading={planMutation.isPending}
                 title={
                   result.migratable === 0 ? "No tunnel can be migrated" : undefined
                 }
-                className="inline-flex items-center gap-2 rounded-sm border border-clr-border bg-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
               >
-                {planMutation.isPending && (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                )}
                 Plan
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
                 onClick={runApply}
-                disabled={!planOpId || applyMutation.isPending}
+                disabled={!planOpId}
+                loading={applyMutation.isPending}
                 title={planOpId ? undefined : "Run a plan first"}
-                className="inline-flex items-center gap-2 rounded-sm bg-clr-action px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {applyMutation.isPending && (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                )}
                 Apply
-              </button>
+              </Button>
               {planOpId && (
                 <span className="text-xs text-clr-text-secondary">
                   Plan ready — read the terminal before applying.
                 </span>
               )}
             </div>
-          </section>
+          </Card>
         </>
       )}
     </div>

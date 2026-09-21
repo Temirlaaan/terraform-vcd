@@ -17,10 +17,10 @@ const KIND_LABEL: Record<AddressUse["kind"], string> = {
 };
 
 const KIND_STYLE: Record<AddressUse["kind"], string> = {
-  external: "bg-amber-100 text-amber-900",
-  ip_set: "bg-sky-100 text-sky-900",
-  internal: "bg-slate-100 text-slate-700",
-  route: "bg-slate-100 text-slate-700",
+  external: "bg-clr-warning-bg text-clr-warning-text",
+  ip_set: "bg-clr-info-bg text-clr-info-text",
+  internal: "bg-clr-surface-sunken text-clr-text-secondary",
+  route: "bg-clr-surface-sunken text-clr-text-secondary",
 };
 
 const IPV4 =
@@ -56,7 +56,7 @@ export function AddressRemapTable({
   ).length;
 
   return (
-    <section className="rounded-sm border border-clr-border bg-white p-4">
+    <section className="rounded-card border border-clr-border-subtle bg-clr-surface shadow-card p-4">
       <header className="mb-3">
         <h2 className="text-sm font-semibold text-clr-text">
           Address remapping
@@ -88,7 +88,7 @@ export function AddressRemapTable({
             const value = mapping[a.address] ?? "";
             const invalid = value !== "" && !isValidIpv4(value);
             return (
-              <tr key={a.address} className="border-t border-clr-border">
+              <tr key={a.address} className="border-t border-clr-border-subtle">
                 <td className="py-1.5 pr-3 align-top">
                   <div className="flex items-center gap-2">
                     <code className="font-mono text-xs text-clr-text">
@@ -96,7 +96,7 @@ export function AddressRemapTable({
                     </code>
                     <span
                       className={cn(
-                        "rounded-sm px-1.5 py-0.5 text-[10px] font-medium",
+                        "rounded px-1.5 py-0.5 text-[10px] font-medium",
                         KIND_STYLE[a.kind],
                       )}
                     >
@@ -114,7 +114,7 @@ export function AddressRemapTable({
                     placeholder="unchanged"
                     spellCheck={false}
                     className={cn(
-                      "w-44 rounded-sm border bg-white px-2 py-1 font-mono text-xs",
+                      "w-44 rounded border bg-clr-surface px-2 py-1 font-mono text-xs",
                       "focus:outline-none focus:border-clr-action",
                       invalid ? "border-clr-danger" : "border-clr-border",
                     )}
@@ -141,7 +141,7 @@ export function AddressRemapTable({
       </table>
 
       {unmappedExternal > 0 && (
-        <p className="mt-3 text-xs text-amber-800">
+        <p className="mt-3 text-xs text-clr-warning-text">
           {unmappedExternal} public address
           {unmappedExternal > 1 ? "es are" : " is"} still pointing at the source
           cloud.
