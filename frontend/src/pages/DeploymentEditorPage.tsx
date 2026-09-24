@@ -29,6 +29,7 @@ import {
   useOrgs,
   useVdcsByOrg,
   useEdgeGatewaysByVdc,
+  edgeLabel,
 } from "@/api/metadataApi";
 import {
   emptySpec,
@@ -1054,7 +1055,7 @@ function TargetPicker({
         }}
         options={(() => {
           const opts = (edges.data ?? []).map((e) => ({
-            label: e.name,
+            label: edgeLabel(e),
             value: e.id,
           }));
           // Preserve the stored edge_id even if it is not in the current

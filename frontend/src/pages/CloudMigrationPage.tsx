@@ -18,6 +18,7 @@ import {
   type CloudId,
   type PreviewResponse,
 } from "@/api/cloudMigrationApi";
+import { edgeLabel } from "@/api/metadataApi";
 import { useConfigStore } from "@/store/useConfigStore";
 
 /* ------------------------------------------------------------------ */
@@ -143,7 +144,7 @@ function EndpointPicker({
         onChange={setEdge}
         isLoading={edges.isLoading}
         disabled={!state.vdcId}
-        options={(edges.data ?? []).map((e) => ({ label: e.name, value: e.id }))}
+        options={(edges.data ?? []).map((e) => ({ label: edgeLabel(e), value: e.id }))}
       />
      </div>
     </Card>

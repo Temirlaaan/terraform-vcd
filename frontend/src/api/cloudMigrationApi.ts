@@ -17,6 +17,7 @@ export interface CloudInfo {
 interface MetadataItem {
   id: string;
   name: string;
+  vdc_group?: string | null;
 }
 
 interface MetadataResponse {

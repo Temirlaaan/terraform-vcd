@@ -9,6 +9,7 @@ import {
   useOrgs,
   useVdcsByOrg,
   useEdgeGatewaysByVdc,
+  edgeLabel,
 } from "@/api/metadataApi";
 import { useMigrationStore } from "@/store/useMigrationStore";
 
@@ -42,7 +43,7 @@ export function MigrationForm({ onSubmit, isLoading }: MigrationFormProps) {
     value: v.id,
   }));
   const edgeOptions = (edgesQuery.data ?? []).map((e) => ({
-    label: e.name,
+    label: edgeLabel(e),
     value: e.id,
   }));
 

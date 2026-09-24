@@ -4,6 +4,13 @@ import api from "./client";
 interface MetadataItem {
   id: string;
   name: string;
+  /** Set on edges owned by a data center group rather than the VDC. */
+  vdc_group?: string | null;
+}
+
+/** An edge shared through a data center group says so in the picker. */
+export function edgeLabel(e: MetadataItem): string {
+  return e.vdc_group ? `${e.name}  (DCG: ${e.vdc_group})` : e.name;
 }
 
 interface MetadataResponse {

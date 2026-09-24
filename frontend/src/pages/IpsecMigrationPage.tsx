@@ -19,6 +19,7 @@ import {
   useIpsecApply,
   type SourceTarget,
 } from "@/api/ipsecMigrationApi";
+import { edgeLabel } from "@/api/metadataApi";
 import { useConfigStore } from "@/store/useConfigStore";
 
 /* IPsec tunnel migration.
@@ -270,7 +271,7 @@ export function IpsecMigrationPage() {
             isLoading={edges.isLoading}
             disabled={!vdcId}
             options={(edges.data ?? []).map((e) => ({
-              label: e.name,
+              label: edgeLabel(e),
               value: e.id,
             }))}
           />
