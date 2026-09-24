@@ -449,3 +449,22 @@ class TestEdgeGatewaysInVdcGroup:
         )
 
         assert [e["id"] for e in result] == ["urn:vcloud:gateway:own"]
+
+    async def test_vdc_record_with_bare_org_uuid(self, client):
+        # vcd.t-cloud.kz (10.5) returns org.id in the VDC record without the
+        # urn:vcloud:org: prefix, while the edge's orgRef.id carries it.
+        _wire(client, [], [DCG_EDGE])
+        inner_get = client._get
+
+        async def get(path, params=None, headers=None):
+            if path == f"/cloudapi/1.0.0/vdcs/{VDC_ID}":
+                return {"id": VDC_ID, "org": {"id": ORG_ID.rsplit(":", 1)[-1]}}
+            return await inner_get(path, params, headers)
+
+        client._get = get
+
+        result = await client.get_edge_gateways_by_vdc_id.__wrapped__(
+            client, vdc_id=VDC_ID
+        )
+
+        assert [e["id"] for e in result] == ["urn:vcloud:gateway:dcg"]

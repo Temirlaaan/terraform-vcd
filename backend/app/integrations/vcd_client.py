@@ -311,8 +311,8 @@ class VCDClient:
         all_vdcs = await self.get_vdcs(org_name=org_name)
         return [{"name": v["name"], "id": v["id"]} for v in all_vdcs]
 
-    # v2: entries from before group edges were included are skipped.
-    @cached(prefix="vcd:edges_by_vdc:v2", ttl=_CACHE_TTL)
+    # Bumped whenever a fix changes the result, so stale lists are skipped.
+    @cached(prefix="vcd:edges_by_vdc:v3", ttl=_CACHE_TTL)
     async def get_edge_gateways_by_vdc_id(self, vdc_id: str) -> list[dict]:
         """Return Edge Gateways usable from a VDC, including its groups' edges.
 
@@ -349,14 +349,16 @@ class VCDClient:
         each owning group by id sidesteps it.
         """
         vdc = await self._get(f"/cloudapi/1.0.0/vdcs/{vdc_id}")
-        org_id = ((vdc or {}).get("org") or {}).get("id")
-        if not org_id:
+        # Compared by bare UUID: 10.5 returns org.id here without the
+        # urn:vcloud:org: prefix that the edge's orgRef.id carries.
+        org_uuid = _urn_uuid(((vdc or {}).get("org") or {}).get("id"))
+        if not org_uuid:
             return []
 
         candidates: dict[str, list[dict]] = {}
         for rec in await self._get_paginated("/cloudapi/1.0.0/edgeGateways"):
             owner = rec.get("ownerRef") or {}
-            if (rec.get("orgRef") or {}).get("id") != org_id:
+            if _urn_uuid((rec.get("orgRef") or {}).get("id")) != org_uuid:
                 continue
             if not str(owner.get("id", "")).startswith("urn:vcloud:vdcGroup:"):
                 continue
@@ -513,6 +515,11 @@ secondary_vcd_client: VCDClient | None = (
 
 PRIMARY = "primary"
 SECONDARY = "secondary"
+
+
+def _urn_uuid(value: str | None) -> str:
+    """``urn:vcloud:org:<uuid>`` and a bare ``<uuid>`` both give ``<uuid>``."""
+    return (value or "").rsplit(":", 1)[-1].lower()
 
 
 def get_vcd_client(cloud: str = PRIMARY) -> VCDClient:
