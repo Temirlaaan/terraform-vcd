@@ -320,49 +320,84 @@ class TestEdgeGatewaysByOwnerId:
 # Edge Gateways owned by a VDC group (DCG)
 #
 # An edge scoped to a data center group has the group as its owner and no
-# orgVdc, so the orgVdc.id filter never returns it. The picker has to find
-# the groups the VDC takes part in and ask for their edges too.
+# orgVdc, so the orgVdc.id filter never returns it. The full /vdcGroups list
+# answers 500 on the 10.5 cloud, so the lookup starts from the org's edges
+# and fetches each owning group by id.
 # ---------------------------------------------------------------------------
 
 VDC_ID = "urn:vcloud:vdc:1111-2222"
+ORG_ID = "urn:vcloud:org:aaaa"
 GROUP_ID = "urn:vcloud:vdcGroup:9999"
+OTHER_GROUP = "urn:vcloud:vdcGroup:other"
 
-FAKE_VDC_GROUPS = [
-    {
+DCG_EDGE = {
+    "id": "urn:vcloud:gateway:dcg",
+    "name": "edge-dcg",
+    "orgRef": {"id": ORG_ID},
+    "ownerRef": {"id": GROUP_ID, "name": "dcg-client"},
+}
+OTHER_GROUP_EDGE = {
+    "id": "urn:vcloud:gateway:other",
+    "name": "edge-other",
+    "orgRef": {"id": ORG_ID},
+    "ownerRef": {"id": OTHER_GROUP, "name": "someone-else"},
+}
+FOREIGN_ORG_EDGE = {
+    "id": "urn:vcloud:gateway:foreign",
+    "name": "edge-foreign",
+    "orgRef": {"id": "urn:vcloud:org:zzzz"},
+    "ownerRef": {"id": "urn:vcloud:vdcGroup:foreign"},
+}
+OWN_EDGE = {
+    "id": "urn:vcloud:gateway:own",
+    "name": "edge-own",
+    "orgRef": {"id": ORG_ID},
+    "ownerRef": {"id": VDC_ID},
+}
+
+GROUPS = {
+    GROUP_ID: {
         "id": GROUP_ID,
         "name": "dcg-client",
         "participatingOrgVdcs": [
-            {"vdcRef": {"id": VDC_ID, "name": "vdc-a"}},
-            {"vdcRef": {"id": "urn:vcloud:vdc:3333", "name": "vdc-b"}},
+            {"vdcRef": {"id": VDC_ID}},
+            {"vdcRef": {"id": "urn:vcloud:vdc:3333"}},
         ],
     },
-    {
-        "id": "urn:vcloud:vdcGroup:other",
+    OTHER_GROUP: {
+        "id": OTHER_GROUP,
         "name": "someone-else",
         "participatingOrgVdcs": [{"vdcRef": {"id": "urn:vcloud:vdc:4444"}}],
     },
-]
+}
 
 
-def _router(responses: dict):
-    """Answer _get_paginated by path and filter, like VCD would."""
+def _wire(client, own_edges, all_edges, broken_groups=()):
+    async def paginated(path, params=None, page_size=128):
+        flt = (params or {}).get("filter")
+        if path == "/cloudapi/1.0.0/edgeGateways" and flt == f"(orgVdc.id=={VDC_ID})":
+            return own_edges
+        if path == "/cloudapi/1.0.0/edgeGateways" and flt is None:
+            return all_edges
+        if path == "/cloudapi/1.0.0/vdcGroups":
+            raise AssertionError("the full group list 500s on 10.5 — never list it")
+        return []
 
-    async def fake(path, params=None, page_size=128):
-        key = (path, (params or {}).get("filter"))
-        return responses.get(key, [])
+    async def get(path, params=None, headers=None):
+        if path == f"/cloudapi/1.0.0/vdcs/{VDC_ID}":
+            return {"id": VDC_ID, "org": {"id": ORG_ID}}
+        gid = path.rsplit("/", 1)[-1]
+        if gid in broken_groups:
+            raise RuntimeError("500")
+        return GROUPS[gid]
 
-    return fake
+    client._get_paginated = paginated
+    client._get = get
 
 
 class TestEdgeGatewaysInVdcGroup:
     async def test_group_edge_is_listed_for_member_vdc(self, client):
-        client._get_paginated = _router({
-            ("/cloudapi/1.0.0/edgeGateways", f"(orgVdc.id=={VDC_ID})"): [],
-            ("/cloudapi/1.0.0/vdcGroups", None): FAKE_VDC_GROUPS,
-            ("/cloudapi/1.0.0/edgeGateways", f"(ownerRef.id=={GROUP_ID})"): [
-                {"id": "urn:vcloud:gateway:dcg", "name": "edge-dcg"},
-            ],
-        })
+        _wire(client, [], [DCG_EDGE, OTHER_GROUP_EDGE, FOREIGN_ORG_EDGE, OWN_EDGE])
 
         result = await client.get_edge_gateways_by_vdc_id.__wrapped__(
             client, vdc_id=VDC_ID
@@ -372,15 +407,7 @@ class TestEdgeGatewaysInVdcGroup:
         assert result[0]["vdc_group"] == "dcg-client"
 
     async def test_vdc_edges_and_group_edges_together(self, client):
-        client._get_paginated = _router({
-            ("/cloudapi/1.0.0/edgeGateways", f"(orgVdc.id=={VDC_ID})"): [
-                {"id": "urn:vcloud:gateway:own", "name": "edge-own"},
-            ],
-            ("/cloudapi/1.0.0/vdcGroups", None): FAKE_VDC_GROUPS,
-            ("/cloudapi/1.0.0/edgeGateways", f"(ownerRef.id=={GROUP_ID})"): [
-                {"id": "urn:vcloud:gateway:dcg", "name": "edge-dcg"},
-            ],
-        })
+        _wire(client, [OWN_EDGE], [DCG_EDGE, OWN_EDGE])
 
         result = await client.get_edge_gateways_by_vdc_id.__wrapped__(
             client, vdc_id=VDC_ID
@@ -390,44 +417,32 @@ class TestEdgeGatewaysInVdcGroup:
         assert set(by_id) == {"urn:vcloud:gateway:own", "urn:vcloud:gateway:dcg"}
         assert by_id["urn:vcloud:gateway:own"]["vdc_group"] is None
 
-    async def test_groups_the_vdc_is_not_in_are_not_queried(self, client):
-        calls = []
-        inner = _router({("/cloudapi/1.0.0/vdcGroups", None): FAKE_VDC_GROUPS})
-
-        async def spy(path, params=None, page_size=128):
-            calls.append((path, (params or {}).get("filter")))
-            return await inner(path, params, page_size)
-
-        client._get_paginated = spy
-
-        await client.get_edge_gateways_by_vdc_id.__wrapped__(client, vdc_id=VDC_ID)
-
-        assert (
-            "/cloudapi/1.0.0/edgeGateways",
-            "(ownerRef.id==urn:vcloud:vdcGroup:other)",
-        ) not in calls
-
-    async def test_same_edge_twice_is_listed_once(self, client):
-        edge = {"id": "urn:vcloud:gateway:dcg", "name": "edge-dcg"}
-        client._get_paginated = _router({
-            ("/cloudapi/1.0.0/edgeGateways", f"(orgVdc.id=={VDC_ID})"): [edge],
-            ("/cloudapi/1.0.0/vdcGroups", None): FAKE_VDC_GROUPS,
-            ("/cloudapi/1.0.0/edgeGateways", f"(ownerRef.id=={GROUP_ID})"): [edge],
-        })
+    async def test_group_the_vdc_is_not_in_is_left_out(self, client):
+        _wire(client, [], [OTHER_GROUP_EDGE])
 
         result = await client.get_edge_gateways_by_vdc_id.__wrapped__(
             client, vdc_id=VDC_ID
         )
 
-        assert len(result) == 1
+        assert result == []
 
-    async def test_vdc_groups_failure_keeps_vdc_edges(self, client):
-        async def fake(path, params=None, page_size=128):
-            if path == "/cloudapi/1.0.0/vdcGroups":
-                raise RuntimeError("403")
-            return [{"id": "urn:vcloud:gateway:own", "name": "edge-own"}]
+    async def test_unreadable_group_still_shows_its_edge(self, client):
+        _wire(client, [], [DCG_EDGE], broken_groups={GROUP_ID})
 
-        client._get_paginated = fake
+        result = await client.get_edge_gateways_by_vdc_id.__wrapped__(
+            client, vdc_id=VDC_ID
+        )
+
+        assert [e["id"] for e in result] == ["urn:vcloud:gateway:dcg"]
+        assert result[0]["vdc_group"] == "dcg-client"
+
+    async def test_lookup_failure_keeps_vdc_edges(self, client):
+        _wire(client, [OWN_EDGE], [])
+
+        async def broken(path, params=None, headers=None):
+            raise RuntimeError("500")
+
+        client._get = broken
 
         result = await client.get_edge_gateways_by_vdc_id.__wrapped__(
             client, vdc_id=VDC_ID

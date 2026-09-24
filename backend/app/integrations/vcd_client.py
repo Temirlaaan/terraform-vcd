@@ -311,7 +311,8 @@ class VCDClient:
         all_vdcs = await self.get_vdcs(org_name=org_name)
         return [{"name": v["name"], "id": v["id"]} for v in all_vdcs]
 
-    @cached(prefix="vcd:edges_by_vdc", ttl=_CACHE_TTL)
+    # v2: entries from before group edges were included are skipped.
+    @cached(prefix="vcd:edges_by_vdc:v2", ttl=_CACHE_TTL)
     async def get_edge_gateways_by_vdc_id(self, vdc_id: str) -> list[dict]:
         """Return Edge Gateways usable from a VDC, including its groups' edges.
 
@@ -330,41 +331,61 @@ class VCDClient:
             }
 
         try:
-            groups = await self._vdc_groups_of(vdc_id)
+            group_edges = await self._group_edges_for_vdc(vdc_id)
         except Exception as exc:
             # Losing the group edges is better than losing the whole list.
-            logger.warning("VDC groups unavailable for %s (%s)", vdc_id, exc)
-            groups = []
+            logger.warning("VDC group edges unavailable for %s (%s)", vdc_id, exc)
+            group_edges = []
 
-        for group in groups:
-            group_params = {"filter": f"(ownerRef.id=={group['id']})"}
-            for rec in await self._get_paginated(
-                "/cloudapi/1.0.0/edgeGateways", params=group_params
-            ):
-                edges.setdefault(
-                    rec.get("id", ""),
+        for edge in group_edges:
+            edges.setdefault(edge["id"], edge)
+        return list(edges.values())
+
+    async def _group_edges_for_vdc(self, vdc_id: str) -> list[dict]:
+        """Edges owned by a data center group the VDC takes part in.
+
+        Listing /vdcGroups is avoided: on vcd.t-cloud.kz (10.5) it answers
+        500 for the whole list. Starting from the org's edges and fetching
+        each owning group by id sidesteps it.
+        """
+        vdc = await self._get(f"/cloudapi/1.0.0/vdcs/{vdc_id}")
+        org_id = ((vdc or {}).get("org") or {}).get("id")
+        if not org_id:
+            return []
+
+        candidates: dict[str, list[dict]] = {}
+        for rec in await self._get_paginated("/cloudapi/1.0.0/edgeGateways"):
+            owner = rec.get("ownerRef") or {}
+            if (rec.get("orgRef") or {}).get("id") != org_id:
+                continue
+            if not str(owner.get("id", "")).startswith("urn:vcloud:vdcGroup:"):
+                continue
+            candidates.setdefault(owner["id"], []).append(rec)
+
+        result: list[dict] = []
+        for group_id, recs in candidates.items():
+            group_name = (recs[0].get("ownerRef") or {}).get("name")
+            try:
+                group = await self._get(f"/cloudapi/1.0.0/vdcGroups/{group_id}")
+                members = {
+                    (p.get("vdcRef") or {}).get("id")
+                    for p in group.get("participatingOrgVdcs") or []
+                }
+                if vdc_id not in members:
+                    continue
+                group_name = group.get("name") or group_name
+            except Exception as exc:
+                # Same org, owned by a group: shown rather than hidden.
+                logger.warning("VDC group %s unreadable (%s) — listing its edges anyway", group_id, exc)
+            for rec in recs:
+                result.append(
                     {
                         "name": rec.get("name", ""),
                         "id": rec.get("id", ""),
-                        "vdc_group": group.get("name"),
-                    },
+                        "vdc_group": group_name,
+                    }
                 )
-        return list(edges.values())
-
-    async def _vdc_groups_of(self, vdc_id: str) -> list[dict]:
-        """Data center groups the VDC participates in.
-
-        Filtered here rather than with FIQL: participatingOrgVdcs is a list,
-        and filtering on a nested list field is not reliable across versions.
-        """
-        groups = await self._get_paginated("/cloudapi/1.0.0/vdcGroups")
-        return [
-            g for g in groups
-            if any(
-                (p.get("vdcRef") or {}).get("id") == vdc_id
-                for p in g.get("participatingOrgVdcs") or []
-            )
-        ]
+        return result
 
     @cached(prefix="vcd:edges_by_owner", ttl=_CACHE_TTL)
     async def get_edge_gateways_by_owner_id(self, owner_id: str) -> list[dict]:
